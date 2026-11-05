@@ -13,9 +13,10 @@ function Check($Condition, [string]$Name) {
 }
 $fx = Join-Path ([IO.Path]::GetTempPath()) ('uabs-anima-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 $empty = Join-Path $fx 'empty'; New-Item -ItemType Directory -Force -Path $empty | Out-Null
+$stateDir = Join-Path $fx 'state'; New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
 # 1. No frontend: quiet no-op, no state claim, no download.
-$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -CheckOnly -Refresh -NoKnownRoots -SearchRoot $empty 2>&1 | Out-String
+$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -CheckOnly -Refresh -NoKnownRoots -SearchRoot $empty -StateDir $stateDir 2>&1 | Out-String
 Check ($LASTEXITCODE -eq 0) 'no frontend exits 0'
 Check ($out -match 'No SwarmUI or ComfyUI') 'no frontend says so and stops'
 
@@ -23,7 +24,7 @@ Check ($out -match 'No SwarmUI or ComfyUI') 'no frontend says so and stops'
 $swarm = Join-Path $fx 'SwarmUI'
 New-Item -ItemType Directory -Force -Path (Join-Path $swarm 'Data'), (Join-Path $swarm 'Models') | Out-Null
 New-Item -ItemType File -Force -Path (Join-Path $swarm 'SwarmUI.sln'), (Join-Path $swarm 'Data\Backends.fds') | Out-Null
-$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -CheckOnly -SwarmUIRoot $swarm 2>&1 | Out-String
+$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -CheckOnly -SwarmUIRoot $swarm -StateDir $stateDir 2>&1 | Out-String
 Check ($LASTEXITCODE -eq 0) 'fake SwarmUI check exits 0'
 Check ($out -match 'SwarmUI: ' + [regex]::Escape($swarm)) 'SwarmUI markers accepted'
 Check ($out -match 'would download') 'missing files are reported, not fetched'
@@ -32,11 +33,11 @@ Check ($out -match 'would download') 'missing files are reported, not fetched'
 $comfy = Join-Path $fx 'ComfyUI'
 New-Item -ItemType Directory -Force -Path (Join-Path $comfy 'comfy'), (Join-Path $comfy 'models') | Out-Null
 New-Item -ItemType File -Force -Path (Join-Path $comfy 'main.py'), (Join-Path $comfy 'comfy\samplers.py') | Out-Null
-$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -CheckOnly -ComfyUIRoot $comfy 2>&1 | Out-String
+$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -CheckOnly -ComfyUIRoot $comfy -StateDir $stateDir 2>&1 | Out-String
 Check ($out -match 'ComfyUI: ' + [regex]::Escape($comfy)) 'ComfyUI markers accepted'
 
 # 4. Offline is not a failure: the optional stack skips instead of erroring.
-$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Offline -SwarmUIRoot $swarm 2>&1 | Out-String
+$out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Offline -SwarmUIRoot $swarm -StateDir $stateDir 2>&1 | Out-String
 Check ($LASTEXITCODE -eq 0) 'offline run exits 0'
 Check ($out -match 'offline mode, not downloaded') 'offline says the file was skipped'
 Check (@(Get-ChildItem -LiteralPath $swarm -Recurse -Filter '*.part' -ErrorAction SilentlyContinue).Count -eq 0) 'offline wrote no partial file'
