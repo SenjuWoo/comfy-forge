@@ -1,9 +1,9 @@
-# Anima generation stack — auto-install handoff
+# Anima generation stack — handoff
 
-Everything the bundle needs to put an **Anima max-generation stack** into a
-SwarmUI or ComfyUI install automatically. Read this before touching the files.
+Everything needed to put an **Anima max-generation stack** into a SwarmUI or
+ComfyUI install. Read this before touching the files.
 
-## What was added
+## What is here
 
 | File | Purpose |
 |---|---|
@@ -11,17 +11,16 @@ SwarmUI or ComfyUI install automatically. Read this before touching the files.
 | `presets.json` | SwarmUI generator presets, including the Anima set. **Export data, not live storage** — import it in the UI. |
 | `ANIMA-HANDOFF.md` | This file. |
 | `TOOLS/Ensure-AnimaSwarmUI.ps1` | The installer. Detects a frontend, downloads only what is missing, verifies SHA-256. |
-| `TOOLS/Ensure-Tools.ps1` | Calls the installer on every run, before its early return. |
+| `TOOLS/image-stack.ps1` | The user-facing CLI. `install` calls the installer for you. |
+| `TOOLS/merge_anima.py` | Offline checkpoint merge. See `docs/MERGE.md`. |
 
-## How the auto-install works
-
-`Ensure-Tools.ps1` runs the installer unconditionally. The installer then:
+## How the install works
 
 1. **Finds frontends.** A folder is SwarmUI if it holds `SwarmUI.sln` +
    `Data\Backends.fds` + a `Models` folder. A folder is ComfyUI if it holds
    `main.py` + `comfy\samplers.py` + a `models` folder. Detection uses
-   `SWARMUI_ROOT` / `COMFYUI_ROOT` (process or user scope), then a
-   directory-name scan of the profile and each fixed drive.
+   `SWARMUI_ROOT` / `COMFYUI_ROOT` (process or user scope), then a bounded
+   directory-name scan, then the path the previous run recorded.
 2. **Resolves SwarmUI's own layout from `Data\Settings.fds`** (`ModelRoot`,
    `SDModelFolder`, `SDVAEFolder`, `SDClipFolder`). It never guesses.
 3. **Downloads only what is missing.** Presence is by SHA-256, not by name, so
@@ -29,10 +28,10 @@ SwarmUI or ComfyUI install automatically. Read this before touching the files.
 4. **Copies the presets** to `<SwarmUI>\Data\presets-uabs-anima.json` and adds
    `PRESETS-IMPORT.md` next to them.
 5. **Records the run** in
-   `%LOCALAPPDATA%\Ultimate-AI-Starter-Bundle\anima-swarmui.json`.
+   `%LOCALAPPDATA%\Ultimate-AI-Starter-Bundle\anima-swarmui.json` (override with
+   `-StateDir`).
 
-A machine with no SwarmUI or ComfyUI is a **no-op** (prints one line, exits 0),
-so wiring it into the general tool flow is safe.
+A machine with no SwarmUI or ComfyUI is a **no-op** (prints one line, exits 0).
 
 ## What gets installed
 
@@ -68,13 +67,13 @@ Downloads resume (`curl.exe -C -`) and stage to a `.part` file, so an
 interrupted run is safe to repeat. A file is only moved into place after both
 its byte length and SHA-256 match the manifest.
 
-## Important facts for the agent
+## Important facts for an agent
 
 - **`rk_beta`, `beta57`, `res_2s`, `res_2m`, `bong_tangent` cannot be used from
   SwarmUI.** They are RES4LYF sampler/scheduler names; RES4LYF exposes its own
   nodes rather than KSampler names, and SwarmUI's sampler list is a hardcoded
   array in `ComfyUIBackendExtension.cs`. Installing RES4LYF does not make them
-  selectable, so the bundle ships none of them. The presets use the closest
+  selectable, so this repo ships none of them. The presets use the closest
   things SwarmUI exposes (`er_sde`, `beta`, `res_multistep`, `linear_quadratic`),
   plus the newer `seeds_2`, `sa_solver_pece` and `exp_heun_2_x0` that are
   already in the installed ComfyUI backend.
@@ -82,6 +81,10 @@ its byte length and SHA-256 match the manifest.
   `res_multistep` with `sgm_uniform` / `beta` / `linear_quadratic`, 28–50 steps,
   CFG 3.5–5). Anima's training data carries **no score tags**, so the Anima
   negatives have none.
+- **SwarmUI rejects `vae: "Automatic"`.** The presets carry it as "let the server
+  choose"; the CLI drops it before sending. In the UI, pick a real VAE.
+- **New model files need a refresh.** SwarmUI caches its model list at startup;
+  `API/TriggerRefresh` picks up a file added while it runs.
 - **Comfy Desktop installs are skipped.** That app keeps its models in a
   separate `ComfyUI-Shared` tree and manages them itself; dropping files into
   the instance's `models` folder would strand them.
@@ -95,11 +98,12 @@ its byte length and SHA-256 match the manifest.
 2. First generation: pick `Anima-2.9B-preview-v1` as the model, the
    `Anima - Author Daily` or `Anima - Official Best` preset, and confirm the
    text encoder and VAE resolve.
-3. The old `woomixAnima_v15` checkpoint is a merge, not the 2.9B base. Keep it,
-   but the 2.9B base is the current reference.
+3. `woomixAnima_v15` is a **different lineage** (28 blocks against the base's
+   40), so it is not a valid merge donor for the 2.9B base and the merger will
+   refuse it. Use a fine-tune of the same base.
 
 ## Updating
 
 To move to a new Anima release: update `anima-manifest.json` (URL, bytes,
-SHA-256) and re-run the installer. Do not add model files to the bundle itself
-— the manifest is the source of truth and the bundle stays small.
+SHA-256) and re-run the installer. The manifest is the source of truth and no
+model files are committed to this repo.
