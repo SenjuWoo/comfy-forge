@@ -183,7 +183,10 @@ function Show-Status {
   $swarm = Get-SwarmRoot
   $comfy = Get-ComfyRoot
   if ($swarm) { Ok "SwarmUI  $swarm" } else { Note 'SwarmUI  not found (run install once it exists)' }
-  if ($comfy) { Ok "ComfyUI  $comfy" } else { Note 'ComfyUI  not found' }
+  $cp = Get-ComfyUIPort
+  if ($comfy) { Ok "ComfyUI  $comfy (standalone)" }
+  elseif ($cp) { Note "ComfyUI  none standalone; SwarmUI's backend answers on $cp" }
+  else { Note 'ComfyUI  not found' }
 
   $presets = Read-Presets
   $animaCount = @($presets.PSObject.Properties | Where-Object { $_.Name -like 'Anima*' }).Count
