@@ -1,0 +1,49 @@
+{
+    "schema": 1,
+    "name": "Anima max-generation stack for SwarmUI / ComfyUI",
+    "updated": "2026-11-05",
+    "note": "Every file is pinned by byte length and SHA-256 (Hugging Face LFS ids). The installer downloads only what is missing; a file already present with a matching SHA-256 is never re-downloaded, whatever its filename or subfolder. Aliases are alternative filenames for the same bytes.",
+    "files": [
+        {
+            "role": "diffusion_model",
+            "filename": "Anima-2.9B-preview-v1.safetensors",
+            "optional": false,
+            "url": "https://huggingface.co/Gazingstars123/Anima-2.9B/resolve/main/Anima-2.9B-preview-v1.safetensors",
+            "bytes": 5843204206,
+            "sha256": "0b3020d1b906155f7eb30667622723e87160632c8c7a5f1c93bdce685f2a346d",
+            "swarmui": "Stable-Diffusion/Anima/Anima-2.9B-preview-v1.safetensors",
+            "comfyui": "models/diffusion_models/Anima-2.9B-preview-v1.safetensors"
+        },
+        {
+            "role": "diffusion_model",
+            "filename": "Anima-2.9B-preview-v1_int8_convrot.safetensors",
+            "optional": true,
+            "url": "https://huggingface.co/Gazingstars123/Anima-2.9B/resolve/main/Anima-2.9B-preview-v1_int8_convrot.safetensors",
+            "bytes": 3082486758,
+            "sha256": "cfb6ee2dde085de2b1c52b3fbe098dbc8c9ebd24f290c59755ab2c5f9291d396",
+            "swarmui": "Stable-Diffusion/Anima/Anima-2.9B-preview-v1_int8_convrot.safetensors",
+            "comfyui": "models/diffusion_models/Anima-2.9B-preview-v1_int8_convrot.safetensors"
+        },
+        {
+            "role": "text_encoder",
+            "filename": "qwen_3_06b_base.safetensors",
+            "aliases": ["qwen_3_600m.safetensors"],
+            "optional": false,
+            "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/text_encoders/qwen_3_06b_base.safetensors",
+            "bytes": 1192135096,
+            "sha256": "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba",
+            "swarmui": "text_encoders/qwen_3_06b_base.safetensors",
+            "comfyui": "models/text_encoders/qwen_3_06b_base.safetensors"
+        },
+        {
+            "role": "vae",
+            "filename": "qwen_image_vae.safetensors",
+            "optional": false,
+            "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+            "bytes": 253806246,
+            "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+            "swarmui": "VAE/qwen_image_vae.safetensors",
+            "comfyui": "models/vae/qwen_image_vae.safetensors"
+        }
+    ]
+}
