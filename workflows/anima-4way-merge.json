@@ -1,0 +1,1184 @@
+{
+  "id": "c71c6479-e668-424d-a7dd-7fe56e3b019c",
+  "revision": 0,
+  "last_node_id": 156,
+  "last_link_id": 15,
+  "nodes": [
+    {
+      "id": 135,
+      "type": "HaDeSAnimaModelLoader",
+      "pos": [
+        80,
+        180
+      ],
+      "size": [
+        420,
+        278
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "DONOR A — choose checkpoint 1",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaModelLoader",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Versetility - Diving-Anima_v9.0.safetensors",
+        "default",
+        3,
+        true,
+        "None"
+      ],
+      "widgets_values_named": {
+        "unet_name": "Versetility - Diving-Anima_v9.0.safetensors",
+        "weight_dtype": "default",
+        "flow_shift": 3,
+        "auto_remap_diffusers": true,
+        "external_llm_adapter": "None"
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 138,
+      "type": "HaDeSAnimaModelLoader",
+      "pos": [
+        80,
+        495
+      ],
+      "size": [
+        420,
+        278
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "DONOR B — choose checkpoint 2",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaModelLoader",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Details - Terra Rising Unity 3.0 - Turbo.safetensors",
+        "default",
+        3,
+        true,
+        "None"
+      ],
+      "widgets_values_named": {
+        "unet_name": "Details - Terra Rising Unity 3.0 - Turbo.safetensors",
+        "weight_dtype": "default",
+        "flow_shift": 3,
+        "auto_remap_diffusers": true,
+        "external_llm_adapter": "None"
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 139,
+      "type": "HaDeSAnimaCLIPLoader",
+      "pos": [
+        630,
+        1100
+      ],
+      "size": [
+        420,
+        246
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Qwen3 text encoder",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaCLIPLoader",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "qwen_3_06b_base.safetensors",
+        "default (GPU Dynamic)",
+        "auto",
+        true
+      ],
+      "widgets_values_named": {
+        "clip_name": "qwen_3_06b_base.safetensors",
+        "device_mode": "default (GPU Dynamic)",
+        "precision": "auto",
+        "strict_qwen3_guard": true
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 140,
+      "type": "HaDeSAnimaVAELoader",
+      "pos": [
+        630,
+        1390
+      ],
+      "size": [
+        420,
+        182
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vae",
+          "type": "VAE",
+          "links": [
+            7
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Anima VAE",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaVAELoader",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "qwen_image_vae.safetensors",
+        "bfloat16 (Recommended Wan21)"
+      ],
+      "widgets_values_named": {
+        "vae_name": "qwen_image_vae.safetensors",
+        "vae_precision": "bfloat16 (Recommended Wan21)"
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 142,
+      "type": "HaDeSAnimaPromptStudio",
+      "pos": [
+        1190,
+        1050
+      ],
+      "size": [
+        440,
+        566
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "shape": 7,
+          "type": "CLIP",
+          "link": 6
+        },
+        {
+          "name": "artist",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        },
+        {
+          "name": "character",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "positive_string",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "negative_string",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "PROMPT — edit scene here",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaPromptStudio",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Anima Aesthetic (Strip score_* & Slop Guard)",
+        "Standard Anime / Illustration",
+        true,
+        1,
+        "",
+        "",
+        "Canonical (1 Trigger + Title)",
+        "ye-pop",
+        "",
+        "masterpiece, best quality, anime illustration, one futuristic armored explorer standing in a neon-lit rainy city at night, detailed sci-fi armor, dramatic rim lighting, expressive eyes, dynamic composition, clean lineart, atmospheric depth",
+        "low quality, blurry, bad anatomy, extra fingers, malformed hands, text, signature, watermark, artifacts"
+      ],
+      "widgets_values_named": {
+        "model_variant": "Anima Aesthetic (Strip score_* & Slop Guard)",
+        "style_mode": "Standard Anime / Illustration",
+        "booru_sanitizer": true,
+        "t5_weight_multiplier": 1,
+        "character_tag": "",
+        "artist_tag": "",
+        "header_mode": "Canonical (1 Trigger + Title)",
+        "header_trigger": "ye-pop",
+        "artwork_title": "",
+        "positive_prompt": "masterpiece, best quality, anime illustration, one futuristic armored explorer standing in a neon-lit rainy city at night, detailed sci-fi armor, dramatic rim lighting, expressive eyes, dynamic composition, clean lineart, atmospheric depth",
+        "negative_prompt": "low quality, blurry, bad anatomy, extra fingers, malformed hands, text, signature, watermark, artifacts"
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 143,
+      "type": "HaDeSAnimaLatentPipelineGuard",
+      "pos": [
+        1190,
+        1670
+      ],
+      "size": [
+        430,
+        330
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "shape": 7,
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "IMAGE SIZE — 1024 × 1024",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaLatentPipelineGuard",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Custom (Auto-Snap to 32px Grid)",
+        1024,
+        1024,
+        1,
+        false
+      ],
+      "widgets_values_named": {
+        "resolution_preset": "Custom (Auto-Snap to 32px Grid)",
+        "custom_width": 1024,
+        "custom_height": 1024,
+        "batch_size": 1,
+        "prevent_29b_white_bg_bias": false
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 148,
+      "type": "HaDeSAnimaModelSaver",
+      "pos": [
+        1190,
+        260
+      ],
+      "size": [
+        418.665625,
+        378
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": null
+        },
+        {
+          "name": "saved_path",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "OPTIONAL — Save merged checkpoint (Ctrl+B to enable)",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "7819145eb68a0ce0a2f963b8c15e9ec4068b7be9",
+        "Node name for S&R": "HaDeSAnimaModelSaver",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "diffusion_models/Anima_4Way_Merged",
+        "Native ComfyUI (MiniTrainDIT)",
+        "bfloat16 (Original Master)",
+        "Embed in Checkpoint (Full)",
+        true,
+        "Operator",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "diffusion_models/Anima_4Way_Merged",
+        "save_format": "Native ComfyUI (MiniTrainDIT)",
+        "precision": "bfloat16 (Original Master)",
+        "llm_adapter_mode": "Embed in Checkpoint (Full)",
+        "include_metadata": true,
+        "custom_author": "Operator",
+        "custom_model_title": ""
+      },
+      "color": "#1f2228",
+      "bgcolor": "#17191e"
+    },
+    {
+      "id": 149,
+      "type": "HaDeSAnimaMultiModelMerger",
+      "pos": [
+        630,
+        240
+      ],
+      "size": [
+        430,
+        514
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model_1",
+          "type": "MODEL",
+          "link": 1
+        },
+        {
+          "name": "model_2",
+          "type": "MODEL",
+          "link": 2
+        },
+        {
+          "name": "base_model",
+          "shape": 7,
+          "type": "MODEL",
+          "link": 5
+        },
+        {
+          "name": "model_3",
+          "shape": 7,
+          "type": "MODEL",
+          "link": 3
+        },
+        {
+          "name": "model_4",
+          "shape": 7,
+          "type": "MODEL",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            8,
+            9
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "4-WAY MERGE — adjust weights here",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "0.4.5",
+        "Node name for S&R": "HaDeSAnimaMultiModelMerger"
+      },
+      "widgets_values": [
+        "Task Arithmetic",
+        0.5,
+        1,
+        0,
+        "fixed",
+        0.85,
+        0.75,
+        0.6,
+        0.5,
+        true
+      ],
+      "widgets_values_named": {
+        "method": "Task Arithmetic",
+        "density": 0.5,
+        "scale": 1,
+        "seed": 0,
+        "control_after_generate": "fixed",
+        "weight_1": 0.85,
+        "weight_2": 0.75,
+        "weight_3": 0.6,
+        "weight_4": 0.5,
+        "protect_llm_adapter": true
+      },
+      "color": "#1f2228",
+      "bgcolor": "#17191e"
+    },
+    {
+      "id": 150,
+      "type": "HaDeSAnimaKSampler",
+      "pos": [
+        1720,
+        440
+      ],
+      "size": [
+        440,
+        690
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 8
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 10
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 11
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 12
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            13
+          ]
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "GENERATE — sampler / steps / CFG",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "0.4.5",
+        "Node name for S&R": "HaDeSAnimaKSampler"
+      },
+      "widgets_values": [
+        "Manual",
+        42,
+        "fixed",
+        36,
+        4,
+        "er_sde",
+        "anima_beta57",
+        1,
+        0
+      ],
+      "widgets_values_named": {
+        "variant_profile": "Manual",
+        "seed": 42,
+        "control_after_generate": "fixed",
+        "steps": 36,
+        "cfg": 4,
+        "sampler_name": "er_sde",
+        "scheduler": "anima_beta57",
+        "denoise": 1,
+        "flow_shift": 0
+      },
+      "color": "#1f2228",
+      "bgcolor": "#17191e"
+    },
+    {
+      "id": 151,
+      "type": "HaDeSAnimaVAEDecode",
+      "pos": [
+        2220,
+        470
+      ],
+      "size": [
+        420,
+        246
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 13
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            14,
+            15
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Decode image (VRAM-aware)",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "0.4.5",
+        "Node name for S&R": "HaDeSAnimaVAEDecode"
+      },
+      "widgets_values": [
+        "Auto Smart-Tile (VRAM & HiRes Aware)",
+        512,
+        64,
+        1.35
+      ],
+      "widgets_values_named": {
+        "decode_mode": "Auto Smart-Tile (VRAM & HiRes Aware)",
+        "tile_size_px": 512,
+        "tile_overlap_px": 64,
+        "auto_tile_mp_threshold": 1.35
+      },
+      "color": "#1f2228",
+      "bgcolor": "#17191e"
+    },
+    {
+      "id": 152,
+      "type": "PreviewImage",
+      "pos": [
+        2740,
+        100
+      ],
+      "size": [
+        650,
+        680
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "title": "4-WAY MERGE PREVIEW",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.44.0",
+        "Node name for S&R": "PreviewImage"
+      },
+      "color": "#682b2b",
+      "bgcolor": "#541717"
+    },
+    {
+      "id": 153,
+      "type": "HaDeSAnimaModelLoader",
+      "pos": [
+        80,
+        810
+      ],
+      "size": [
+        420,
+        278
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "DONOR C — choose checkpoint 3",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaModelLoader",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Composition - hentai_studio_quality-000008.safetensors",
+        "default",
+        3,
+        true,
+        "None"
+      ],
+      "widgets_values_named": {
+        "unet_name": "Composition - hentai_studio_quality-000008.safetensors",
+        "weight_dtype": "default",
+        "flow_shift": 3,
+        "auto_remap_diffusers": true,
+        "external_llm_adapter": "None"
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 154,
+      "type": "HaDeSAnimaModelLoader",
+      "pos": [
+        80,
+        1125
+      ],
+      "size": [
+        420,
+        278
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "DONOR D — choose checkpoint 4",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaModelLoader",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Consistensy - One obsession_animaV5turbo.safetensors",
+        "default",
+        3,
+        true,
+        "None"
+      ],
+      "widgets_values_named": {
+        "unet_name": "Consistensy - One obsession_animaV5turbo.safetensors",
+        "weight_dtype": "default",
+        "flow_shift": 3,
+        "auto_remap_diffusers": true,
+        "external_llm_adapter": "None"
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 155,
+      "type": "HaDeSAnimaModelLoader",
+      "pos": [
+        80,
+        1450
+      ],
+      "size": [
+        420,
+        278
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "BASE — original Anima ancestor (required)",
+      "properties": {
+        "cnr_id": "hades-anima-suite",
+        "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
+        "Node name for S&R": "HaDeSAnimaModelLoader",
+        "aux_id": "Devildonia/HaDeS-Anima-Suite",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "Anima-2.9B-preview-v1.safetensors",
+        "default",
+        3,
+        true,
+        "None"
+      ],
+      "widgets_values_named": {
+        "unet_name": "Anima-2.9B-preview-v1.safetensors",
+        "weight_dtype": "default",
+        "flow_shift": 3,
+        "auto_remap_diffusers": true,
+        "external_llm_adapter": "None"
+      },
+      "color": "#1b2028",
+      "bgcolor": "#12151a"
+    },
+    {
+      "id": 156,
+      "type": "SaveImage",
+      "pos": [
+        2750,
+        900
+      ],
+      "size": [
+        380,
+        270
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 15
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "title": "AUTO SAVE — generated PNG",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.44.0",
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "Anima_4Way_Preview"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Anima_4Way_Preview"
+      }
+    }
+  ],
+  "links": [
+    [
+      1,
+      135,
+      0,
+      149,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      138,
+      0,
+      149,
+      1,
+      "MODEL"
+    ],
+    [
+      3,
+      153,
+      0,
+      149,
+      3,
+      "MODEL"
+    ],
+    [
+      4,
+      154,
+      0,
+      149,
+      4,
+      "MODEL"
+    ],
+    [
+      5,
+      155,
+      0,
+      149,
+      2,
+      "MODEL"
+    ],
+    [
+      6,
+      139,
+      0,
+      142,
+      0,
+      "CLIP"
+    ],
+    [
+      7,
+      140,
+      0,
+      151,
+      1,
+      "VAE"
+    ],
+    [
+      8,
+      149,
+      0,
+      150,
+      0,
+      "MODEL"
+    ],
+    [
+      9,
+      149,
+      0,
+      148,
+      0,
+      "MODEL"
+    ],
+    [
+      10,
+      142,
+      0,
+      150,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      11,
+      142,
+      1,
+      150,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      12,
+      143,
+      0,
+      150,
+      3,
+      "LATENT"
+    ],
+    [
+      13,
+      150,
+      0,
+      151,
+      0,
+      "LATENT"
+    ],
+    [
+      14,
+      151,
+      0,
+      152,
+      0,
+      "IMAGE"
+    ],
+    [
+      15,
+      151,
+      0,
+      156,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "1  SELECT FOUR ANIMA CHECKPOINTS + THEIR COMMON BASE",
+      "bounding": [
+        55,
+        115,
+        500,
+        1680
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "2  MERGE — FOUR WEIGHTS, METHOD, ADAPTER PROTECTION",
+      "bounding": [
+        605,
+        165,
+        495,
+        630
+      ],
+      "color": "#5d70b1",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "3  OPTIONAL CHECKPOINT EXPORT — BYPASSED UNTIL ENABLED",
+      "bounding": [
+        1160,
+        160,
+        485,
+        535
+      ],
+      "color": "#b58a47",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "4  GENERATION SETUP — ENCODER, VAE, PROMPT, IMAGE SIZE",
+      "bounding": [
+        605,
+        1005,
+        1100,
+        1165
+      ],
+      "color": "#429a92",
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "5  PREVIEW & SAVE — IMAGE SAVES AUTOMATICALLY",
+      "bounding": [
+        1690,
+        60,
+        1750,
+        1220
+      ],
+      "color": "#3e9a65",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ue_links": [],
+    "ds": {
+      "scale": 0.4883546205860269,
+      "offset": [
+        718.6346256011708,
+        261.8934449097131
+      ]
+    },
+    "links_added_by_ue": [],
+    "frontendVersion": "1.57.6"
+  },
+  "version": 0.4
+}

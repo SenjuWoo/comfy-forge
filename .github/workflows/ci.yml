@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # CPU torch only: the merge tests run on tiny tensors.
+      - name: Install merge dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install safetensors
+
+      - name: PowerShell parse gate
+        shell: powershell
+        run: ./TESTS/Test-PsSyntax.ps1
+
+      - name: Installer gate (no downloads)
+        shell: powershell
+        run: ./TESTS/Test-AnimaInstall.ps1
+
+      - name: Merge math
+        run: python TESTS/test_merge.py
+
+      - name: MCP handshake
+        run: python TESTS/test_mcp_handshake.py
+        continue-on-error: true   # needs npm registry access; not a code failure

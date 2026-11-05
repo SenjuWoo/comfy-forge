@@ -1,0 +1,19 @@
+# Local model checkpoints and renders never belong in the repo.
+out/
+artifacts/
+*.safetensors
+*.part
+
+# The upstream ComfyUI MCP checkout is a dependency, not source. Install it with
+# `npx -y comfyui-mcp@0.52.206` (see README) instead of committing a fork.
+TOOLS/comfyui-mcp/
+
+# Editor / OS noise
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# Python bytecode from the merge tool
+__pycache__/
+*.pyc
