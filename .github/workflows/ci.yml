@@ -21,7 +21,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install safetensors
+          pip install safetensors numpy
 
       - name: PowerShell parse gate
         shell: powershell
@@ -36,4 +36,5 @@ jobs:
 
       - name: MCP handshake
         run: python TESTS/test_mcp_handshake.py
+        timeout-minutes: 4        # npx downloads the server; never hang the job
         continue-on-error: true   # needs npm registry access; not a code failure

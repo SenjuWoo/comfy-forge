@@ -54,9 +54,9 @@ Without `-Out`, the file is written to
 `<SwarmUI>\Models\Stable-Diffusion\Anima\Anima-4way-<timestamp>.safetensors` and
 SwarmUI's model list is refreshed, so it is selectable right away.
 
-Under the hood it calls `TOOLS\merge_anima.py`, which needs `torch` and
-`safetensors`. Those ship with the Python that ComfyUI installs, so the wrapper
-finds that interpreter for you. Nothing is installed globally.
+Under the hood it calls `TOOLS\merge_anima.py`, which needs `torch`,
+`safetensors` and `numpy`. All three ship with the Python that ComfyUI installs,
+so the wrapper finds that interpreter for you. Nothing is installed globally.
 
 ## Compatibility rules
 

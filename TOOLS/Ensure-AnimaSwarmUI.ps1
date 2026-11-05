@@ -28,7 +28,10 @@ param(
   [string]$ComfyUIRoot,
   [string[]]$SearchRoot,
   [switch]$Refresh,
-  [switch]$NoKnownRoots
+  [switch]$NoKnownRoots,
+  # Where the run record lives. Tests and portable installs use a temp dir so
+  # they never overwrite the real %LOCALAPPDATA% record.
+  [string]$StateDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,6 +49,7 @@ if (Test-Path -LiteralPath $common) {
   function Write-UabsWarn([string]$m)  { Write-Host ("  !!  " + $m) -ForegroundColor Yellow }
   function Write-UabsBad([string]$m)   { Write-Host ("  XX  " + $m) -ForegroundColor Red }
   function Get-UabsStateRoot {
+    if ($StateDir) { return $StateDir }
     $base = $env:LOCALAPPDATA; if (-not $base) { $base = $env:TEMP }
     return (Join-Path $base 'Ultimate-AI-Starter-Bundle')
   }

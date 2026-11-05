@@ -66,10 +66,25 @@ function Note($Message) { Write-Host "..     $Message" }
 # Discovery - read what the installer already recorded instead of re-scanning
 # every drive. The installer owns detection; this only reads its result.
 # ---------------------------------------------------------------------------
+function Test-Frontend {
+  # Same markers the installer uses, so a recorded path that has since been
+  # moved or deleted is not trusted just because it is written in the state file.
+  param([string]$Kind, [string]$Root)
+  if (-not $Root -or -not (Test-Path -LiteralPath $Root)) { return $false }
+  if ($Kind -eq 'SwarmUI') {
+    return (Test-Path -LiteralPath (Join-Path $Root 'SwarmUI.sln')) -and
+           (Test-Path -LiteralPath (Join-Path $Root 'Data\Backends.fds')) -and
+           (Test-Path -LiteralPath (Join-Path $Root 'Models'))
+  }
+  return (Test-Path -LiteralPath (Join-Path $Root 'main.py')) -and
+         (Test-Path -LiteralPath (Join-Path $Root 'comfy\samplers.py')) -and
+         (Test-Path -LiteralPath (Join-Path $Root 'models'))
+}
+
 function Get-Frontends {
   if (-not (Test-Path -LiteralPath $StatePath)) { return @() }
   $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
-  return @($state.frontends)
+  return @($state.frontends | Where-Object { Test-Frontend -Kind $_.kind -Root $_.root })
 }
 
 function Get-SwarmRoot {
@@ -168,7 +183,10 @@ function Show-Status {
   $swarm = Get-SwarmRoot
   $comfy = Get-ComfyRoot
   if ($swarm) { Ok "SwarmUI  $swarm" } else { Note 'SwarmUI  not found (run install once it exists)' }
-  if ($comfy) { Ok "ComfyUI  $comfy" } else { Note 'ComfyUI  not found' }
+  $cp = Get-ComfyUIPort
+  if ($comfy) { Ok "ComfyUI  $comfy (standalone)" }
+  elseif ($cp) { Note "ComfyUI  none standalone; SwarmUI's backend answers on $cp" }
+  else { Note 'ComfyUI  not found' }
 
   $presets = Read-Presets
   $animaCount = @($presets.PSObject.Properties | Where-Object { $_.Name -like 'Anima*' }).Count
@@ -262,14 +280,18 @@ function Invoke-Generate {
 }
 
 function Invoke-Merge {
-  if ($Donors.Count -lt 1) { Fail 'merge needs -Donors (one path per checkpoint, up to 4)' }
+  # Accept -Donors a,b as well as -Donors a,b,c: some shells (and copy-paste
+  # from a comma list) deliver the whole list as one string.
+  $DonorPaths = @($Donors | ForEach-Object { $_ -split ',' } |
+                  ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ })
+  if ($DonorPaths.Count -lt 1) { Fail 'merge needs -Donors (one path per checkpoint, up to 4)' }
   $swarm = Get-SwarmRoot
   if (-not $Base) {
     if (-not $swarm) { Fail 'merge needs -Base, or a SwarmUI install to find Anima-2.9B-preview-v1' }
     $Base = Join-Path $swarm 'Models\Stable-Diffusion\Anima\Anima-2.9B-preview-v1.safetensors'
   }
   if (-not (Test-Path -LiteralPath $Base)) { Fail "base checkpoint not found: $Base" }
-  foreach ($d in $Donors) { if (-not (Test-Path -LiteralPath $d)) { Fail "donor checkpoint not found: $d" } }
+  foreach ($d in $DonorPaths) { if (-not (Test-Path -LiteralPath $d)) { Fail "donor checkpoint not found: $d" } }
 
   if (-not $Out) {
     $dir = if ($swarm) { Join-Path $swarm 'Models\Stable-Diffusion\Anima' } else { Join-Path $Root 'out' }
@@ -280,11 +302,11 @@ function Invoke-Merge {
   $python = Find-Python
   $mergeScript = Join-Path $PSScriptRoot 'merge_anima.py'
   $argv = @('--base', $Base, '--out', $Out, '--method', $Method, '--scale', $Scale)
-  foreach ($d in $Donors) { $argv += @('--donor', $d) }
+  foreach ($d in $DonorPaths) { $argv += @('--donor', $d) }
   if ($Weights) { $argv += @('--weights', $Weights) }
   if ($Force) { $argv += '--force' }
 
-  Note ("merging {0} donor(s) onto {1}" -f $Donors.Count, (Split-Path -Leaf $Base))
+  Note ("merging {0} donor(s) onto {1}" -f $DonorPaths.Count, (Split-Path -Leaf $Base))
   & $python $mergeScript @argv
   if ($LASTEXITCODE -ne 0) { Fail "merge failed (python exit $LASTEXITCODE)" }
 
