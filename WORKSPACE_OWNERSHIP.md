@@ -1,6 +1,7 @@
 # Workspace ownership
 
 - Project root: `.` (this file's directory; one owner shared by every agent).
+- Project name: `comfy-kit` (formerly `uabs-image-stack`).
 - Active source: `.` — the repo root is the source. No version-stamped snapshots; Git tags carry releases.
 - Versioning: SemVer tags (`v0.x.y`), `CHANGELOG.md` is the record.
 - Repository: local Git repo on branch `main`; no remote until the operator asks.

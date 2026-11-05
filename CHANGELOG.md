@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.2.0 — comfy-kit
+
+Renamed from `uabs-image-stack`, and the four-way merge now works on real files.
+
+### Added
+
+- `install` fetches **everything** that is missing, not just models: the Anima
+  custom node pack (`custom_nodes/hades-anima-suite`), `safetensors`/`numpy` in
+  ComfyUI's python, and a check for Node.js. torch is never replaced — ComfyUI's
+  CUDA build stays untouched.
+- `status` reports each requirement with the command that fixes it.
+- `merge` anchors on the first donor automatically when the requested base is a
+  different Anima lineage, and says so. An explicit `-Base` is never overridden.
+- `docs/banner.svg`, a real sample render in the README.
+
+### Fixed
+
+- **The 40-block trap.** `Anima-2.9B-preview-v1` has 40 blocks; the four Anima
+  fine-tunes have 28. Blending them by name loads fine and renders pure black.
+  The merger now returns a distinct exit code for that case and the CLI retries
+  with a same-lineage anchor instead of writing a dead checkpoint.
+- `move explicit-base capture`: the retry never fired because the default base
+  was assigned before the "did the user pick one" check.
+
+### Verified
+
+- Four-donor merge (0.85/0.75/0.60/0.50) anchored on `Versetility`: 567 tensors
+  merged, 4.18 GB written, rendered a coherent 1024×1024 image with
+  `Anima - Official Best (ER-SDE + SGM)`.
+
 ## v0.1.0 — first usable starter pack
 
 Extracted from Ultimate-AI-Starter-Bundle and turned into something a new user

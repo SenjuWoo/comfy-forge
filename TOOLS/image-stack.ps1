@@ -4,6 +4,10 @@
   from a preset, merge checkpoints, and wire an agent to ComfyUI.
 
 .DESCRIPTION
+  comfy-kit keeps the Anima path on rails: `install` fetches everything that is
+  missing (model files, the Anima node pack, the python merge modules), and the
+  other verbs do one job each.
+
   This script is deliberately a thin orchestrator. It never re-implements model
   download (Ensure-AnimaSwarmUI.ps1 owns that) or merge math
   (TOOLS\merge_anima.py owns that). It finds what is installed, then calls the
@@ -11,7 +15,7 @@
 
   Verbs:
     status                        what is installed, running, and available
-    install [-IncludeOptional]    download/verify the Anima model files
+    install [-IncludeOptional]    fetch everything missing: models, node pack, deps
     presets [-Name <preset>]      list presets, or show one preset's settings
     generate -Prompt <text> [-Preset <name>] [-Model <name>]
                                  1024x1024 render through SwarmUI's API
@@ -211,6 +215,106 @@ function Show-Status {
 
   $cp = Get-ComfyUIPort
   if ($cp) { Ok "comfyui  ComfyUI API on port $cp (MCP target)" } else { Note 'comfyui  no ComfyUI API port answered' }
+
+  Show-Requirements
+}
+
+# ---------------------------------------------------------------------------
+# Requirements - everything the kit needs beyond the model files. `status`
+# reports them, `install` fixes every one it can without changing an existing
+# ComfyUI install's own packages.
+# ---------------------------------------------------------------------------
+function Get-ComfyNodeDir {
+  $swarm = Get-SwarmRoot
+  if (-not $swarm) { return $null }
+  foreach ($p in @((Join-Path $swarm 'dlbackend\comfy\ComfyUI\custom_nodes'),
+                   (Join-Path $swarm 'Extensions'))) {
+    if (Test-Path -LiteralPath $p) { return $p }
+  }
+  return $null
+}
+
+function Test-HadesPack {
+  $dir = Get-ComfyNodeDir
+  if (-not $dir) { return $false }
+  return (Test-Path -LiteralPath (Join-Path $dir 'hades-anima-suite'))
+}
+
+function Test-PythonDeps([string]$Python) {
+  if (-not $Python) { return $false }
+  & $Python -c "import torch, safetensors, numpy" 2>$null | Out-Null
+  return ($LASTEXITCODE -eq 0)
+}
+
+function Test-CommandExists([string]$Name) {
+  return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Show-Requirements {
+  $py = Find-Python
+  $rows = @()
+
+  $rows += @{ Name = 'python'; Ok = (Test-Path -LiteralPath $py); Detail = $py;
+              Fix = 'install ComfyUI or put python on PATH' }
+  $rows += @{ Name = 'merge deps'; Ok = (Test-PythonDeps $py); Detail = 'torch, safetensors, numpy';
+              Fix = 'image-stack.ps1 install' }
+  $rows += @{ Name = 'node/npx'; Ok = ((Test-CommandExists 'node') -and (Test-CommandExists 'npx')); Detail = 'for the ComfyUI MCP server';
+              Fix = 'install Node.js 18+' }
+  $rows += @{ Name = 'hades nodes'; Ok = (Test-HadesPack); Detail = 'HaDeS-Anima-Suite (custom_nodes)';
+              Fix = 'image-stack.ps1 install' }
+  $rows += @{ Name = 'git'; Ok = (Test-CommandExists 'git'); Detail = 'for node-pack installs';
+              Fix = 'install Git' }
+
+  foreach ($r in $rows) {
+    if ($r.Ok) { Ok ("{0,-11} {1}" -f $r.Name, $r.Detail) }
+    else { Write-Host ("missing    {0,-11} {1}  -> {2}" -f $r.Name, $r.Detail, $r.Fix) -ForegroundColor Yellow }
+  }
+}
+
+function Install-MissingRequirements {
+  $fixed = 0
+
+  # Python merge dependencies. torch is never replaced: ComfyUI ships a CUDA
+  # build that must match its own setup, so only the small modules are added.
+  $py = Find-Python
+  if (Test-Path -LiteralPath $py) {
+    $missing = @()
+    foreach ($mod in @('torch', 'safetensors', 'numpy')) {
+      & $py -c "import $mod" 2>$null | Out-Null
+      if ($LASTEXITCODE -ne 0) { $missing += $mod }
+    }
+    if ($missing -contains 'torch') {
+      Write-Host 'note       torch is missing from the ComfyUI python; install ComfyUI/its requirements first' -ForegroundColor Yellow
+    }
+    $pip = @($missing | Where-Object { $_ -ne 'torch' })
+    if ($pip.Count) {
+      Note ("installing python modules: " + ($pip -join ', '))
+      & $py -m pip install --quiet --disable-pip-version-check @pip
+      if ($LASTEXITCODE -eq 0) { Ok 'python modules installed'; $fixed++ }
+      else { Write-Host 'warning    pip install failed; merges will not run' -ForegroundColor Yellow }
+    }
+  }
+  else { Write-Host 'warning    no python found; merges are unavailable' -ForegroundColor Yellow }
+
+  # HaDeS Anima Suite: only needed by the ComfyUI workflow, never by the CLI.
+  if (-not (Test-HadesPack)) {
+    $dir = Get-ComfyNodeDir
+    if ($dir -and (Test-CommandExists 'git')) {
+      $dest = Join-Path $dir 'hades-anima-suite'
+      Note 'installing the HaDeS Anima Suite custom node pack'
+      & git clone --depth 1 --quiet https://github.com/Devildonia/HaDeS-Anima-Suite.git $dest
+      if ($LASTEXITCODE -eq 0) { Ok "node pack -> $dest"; $fixed++ }
+      else { Write-Host 'warning    node pack clone failed (the CLI merge does not need it)' -ForegroundColor Yellow }
+    } else {
+      Write-Host 'warning    cannot install the node pack: needs a ComfyUI custom_nodes folder and git' -ForegroundColor Yellow
+    }
+  }
+
+  if (-not (Test-CommandExists 'node')) {
+    Write-Host 'warning    Node.js is missing; the ComfyUI MCP server needs it (https://nodejs.org/)' -ForegroundColor Yellow
+  }
+
+  if ($fixed -eq 0) { Ok 'nothing to install' } else { Ok "$fixed component(s) installed" }
 }
 
 function Invoke-Install {
@@ -220,6 +324,9 @@ function Invoke-Install {
   if ($IncludeOptional) { $cliArgs += '-IncludeOptional' }
   & powershell @cliArgs
   if ($LASTEXITCODE -ne 0) { Fail "installer exited $LASTEXITCODE" }
+  Write-Host ''
+  Say '== remaining requirements =='
+  Install-MissingRequirements
 }
 
 function Show-Presets {
@@ -285,6 +392,9 @@ function Invoke-Merge {
   $DonorPaths = @($Donors | ForEach-Object { $_ -split ',' } |
                   ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ })
   if ($DonorPaths.Count -lt 1) { Fail 'merge needs -Donors (one path per checkpoint, up to 4)' }
+  # Remember whether the caller chose a base before the default fills it in:
+  # a default base must not block the same-lineage retry below.
+  $explicitBase = [bool]$Base
   $swarm = Get-SwarmRoot
   if (-not $Base) {
     if (-not $swarm) { Fail 'merge needs -Base, or a SwarmUI install to find Anima-2.9B-preview-v1' }
@@ -308,7 +418,32 @@ function Invoke-Merge {
 
   Note ("merging {0} donor(s) onto {1}" -f $DonorPaths.Count, (Split-Path -Leaf $Base))
   & $python $mergeScript @argv
-  if ($LASTEXITCODE -ne 0) { Fail "merge failed (python exit $LASTEXITCODE)" }
+  $exit = $LASTEXITCODE
+
+  # Exit 3 means the base is a different Anima lineage than the donors (e.g. the
+  # 40-block 2.9B base against 28-block fine-tunes). Those cannot be blended, so
+  # retry with the first donor as the anchor, which is what a same-lineage merge
+  # actually means. An explicit -Base is never overridden.
+  if ($exit -eq 3 -and -not $explicitBase) {
+    $rest = @($DonorPaths | Select-Object -Skip 1)
+    if ($rest.Count -lt 1) { Fail 'the donors do not share a lineage with the base, and there is no second donor to anchor on' }
+    $w = $null
+    if ($Weights) {
+      $vals = @($Weights -split ',' | ForEach-Object { $_.Trim() })
+      if ($vals.Count -eq ($rest.Count + 1)) { $w = ($vals[1..($vals.Count - 1)] -join ',') }
+      elseif ($vals.Count -eq $rest.Count) { $w = ($vals -join ',') }
+    }
+    $Base = $DonorPaths[0]
+    Say ''
+    Note ("anchoring on {0} instead (same lineage as the other donors)" -f (Split-Path -Leaf $Base))
+    $argv = @('--base', $Base, '--out', $Out, '--method', $Method, '--scale', $Scale)
+    foreach ($d in $rest) { $argv += @('--donor', $d) }
+    if ($w) { $argv += @('--weights', $w) }
+    if ($Force) { $argv += '--force' }
+    & $python $mergeScript @argv
+    $exit = $LASTEXITCODE
+  }
+  if ($exit -ne 0) { Fail "merge failed (python exit $exit)" }
 
   if ($swarm -and $Out.StartsWith($swarm, [StringComparison]::OrdinalIgnoreCase)) {
     Note 'refreshing the SwarmUI model list so the merge appears in the UI'

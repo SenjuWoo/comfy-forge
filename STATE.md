@@ -3,7 +3,7 @@
 **Goal** — a starter pack a new user can run: install Anima, make an image, merge
 checkpoints, connect an agent. Anima-focused.
 
-**Version** — v0.1.0 (first release).
+**Version** — v0.2.0 (`comfy-kit`).
 
 **Done**
 - `TOOLS/image-stack.ps1` with `status | install | presets | generate | merge | mcp`,
@@ -13,11 +13,13 @@ checkpoints, connect an agent. Anima-focused.
 - `workflows/anima-4way-merge.json` (operator graph) + `docs/MERGE.md`.
 - Tests: `test_merge.py` (18), `Test-AnimaInstall.ps1` (15), `Test-PsSyntax.ps1`,
   `test_mcp_handshake.py` (comfyui-mcp 0.52.206, 3 tools).
+- Four-donor merge proven on the real donor set, anchored on `Versetility`
+  (28-block lineage); renders a coherent 1024x1024 image.
+- `install` installs missing node pack + python modules, not just models.
 - CI on windows-latest.
 
 **Next**
-- Prove a four-donor merge with the real donor set (files were on a `W:` path that
-  is not on this machine).
+- Standalone ComfyUI (non-SwarmUI) path is untested.
 - Optional: a preset import helper for headless SwarmUI sessions.
 
 **Last known good** — v0.1.0 tag.

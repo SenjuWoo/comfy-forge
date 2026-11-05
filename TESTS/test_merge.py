@@ -125,9 +125,9 @@ def main():
                "model.diffusion_model.blocks.2.w": torch.ones(2, dtype=torch.bfloat16)},
               deep_path)
     try:
-        merge_anima.main(["--base", base_path, "--donor", deep_path,
-                          "--out", os.path.join(tmp, "deep.safetensors")])
-        check(False, "different block count is refused")
+        code = merge_anima.main(["--base", base_path, "--donor", deep_path,
+                                 "--out", os.path.join(tmp, "deep.safetensors")])
+        check(code == 3, "different block count is refused")
     except SystemExit as exc:
         check("blocks" in str(exc), "different block count is refused")
 

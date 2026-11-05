@@ -30,7 +30,8 @@ Weights are relative: `0.85,0.75,0.60,0.50` behaves exactly like
 donor's movement away from the base, which pushes differences harder and can
 overcook the model; `scale 0.5` is a gentler blend.
 
-Your commented donor set, by the quality each one was picked for:
+Your commented donor set, by the quality each one was picked for. Note that the
+first one becomes the **anchor** for this set — see the lineage rule below:
 
 | Slot | File | Weight |
 |---|---|---|
@@ -64,11 +65,27 @@ A merge only makes sense between checkpoints from the same lineage. The tool
 checks this and refuses rather than writing a broken file:
 
 - **Same architecture.** Anima merges only with Anima.
-- **Same block count.** The 2.9B base has 40 blocks. A 28-block checkpoint is a
-  different lineage; pairing block 12 of one with block 12 of the other blends
-  unrelated layers, and the result renders **black**. `merge_anima.py` stops
-  with a message naming both counts. `--allow-topology-mismatch` forces it
-  through anyway, for experiments.
+- **Same block count.** This is the one that bites. `Anima-2.9B-preview-v1` has
+  **40 blocks**; the four fine-tunes above have **28**. Pairing block 12 of a
+  40-block model with block 12 of a 28-block model blends unrelated layers: the
+  file loads, the sampler runs, and the PNG is pure black with no error. Verified
+  both ways on real files.
+
+  `merge_anima.py` counts the blocks and stops. The CLI then anchors on the first
+  donor (dropping that donor's weight), which is the merge those files can
+  actually support:
+
+  ```
+  base      Versetility - Diving-Anima_v9.0.safetensors  (685 tensors)
+  donor     Details - Terra Rising Unity 3.0 - Turbo   weight 0.75
+  donor     Composition - hentai_studio_quality        weight 0.60
+  donor     Consistensy - One obsession                weight 0.50
+  merged    567 tensors, kept 118 llm_adapter, skipped 0
+  ```
+
+  An explicit `-Base` is never overridden: if you name a base, that is what gets
+  used, and a lineage mismatch is an error. `--allow-topology-mismatch` forces a
+  cross-lineage merge for experiments.
 - **Same shape per tensor.** A mismatch stops the merge with the tensor name.
 - **Key spelling may differ.** A full checkpoint spells weights
   `model.diffusion_model.blocks.0…` while a diffusion-only file spells them

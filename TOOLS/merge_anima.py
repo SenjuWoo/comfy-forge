@@ -233,8 +233,11 @@ def main(argv=None):
                    f"the base has {len(base_blocks)} - not the same Anima lineage, so "
                    f"the merge would pair unrelated layers")
             if not args.allow_topology_mismatch:
-                sys.exit("error: " + msg + "\n       use a donor fine-tuned from this base, "
-                         "or pass --allow-topology-mismatch to merge anyway")
+                print("error: " + msg, file=sys.stderr)
+                print("       anchor on a checkpoint from the same lineage (e.g. --base with one "
+                      "of the donors), or pass --allow-topology-mismatch to merge anyway",
+                      file=sys.stderr)
+                return 3  # distinct code: a caller can retry with a same-lineage anchor
             print("warning: " + msg)
 
     print(f"base      {os.path.basename(args.base)}  ({len(base_header)} tensors)")
