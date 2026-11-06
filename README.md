@@ -110,8 +110,15 @@ here: schedulers 9 → 11, samplers 45 → 64.
 `anima_beta57` in the HaDeS graph is the same schedule as RES4LYF's **`beta57`**
 (`beta_scheduler(alpha=0.5, beta=0.7)`); use `beta57` in SwarmUI.
 
+A merge of a **full checkpoint** (UNET + encoder + VAE) keeps everything the base
+carries and blends only the UNET, so the result loads in `CheckpointLoaderSimple`
+as well as `UNETLoader`.
+
 Full reference — weights, scale, methods, compatibility rules and how to check a
 merge: **[docs/MERGE.md](docs/MERGE.md)**.
+
+`civitai/` holds a worked publish package (model description, version notes,
+hashes, donor table, samples) as a template for releasing a merged checkpoint.
 
 ## Requirements
 

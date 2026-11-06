@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.4.0 — full checkpoints, honest hashes, publish package
+
+### Fixed
+
+- **Merging a full checkpoint crashed.** Scalar (0-dim) tensors cannot be viewed
+  as `uint8`; `tensor_bytes` now reshapes first. This blocked every merge whose
+  base carried an encoder or VAE.
+- **The reported `sha256` was not the file's hash.** The writer digested
+  `header || data` and skipped the 8-byte length prefix, so the printed value
+  never matched `sha256sum` — a hash you could not publish. The prefix is now
+  included; the printed digest and an independent `sha256sum` agree.
+- **`merge` could claim a link that did not exist.** `New-Item -ItemType HardLink`
+  reported success while leaving a separate copy in ComfyUI's tree. The link is
+  now made with `mklink /H` and verified with `fsutil hardlink list`.
+
+### Added
+
+- `civitai/` — the publish package for WooMix (Anima) v1.75: model description,
+  version notes, `publish.json` (hashes, sizes, donor weights, settings, credits)
+  and sample renders.
+
 ## v0.3.1 — a merge no longer pretends to be its base
 
 ### Fixed

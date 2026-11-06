@@ -1,0 +1,89 @@
+{
+  "model": {
+    "name": "WooMix (Anima)",
+    "civitai_model_id": 2723359,
+    "type": "Checkpoint Merge",
+    "base_model": "Anima"
+  },
+  "version": {
+    "name": "v1.75",
+    "file": "woomixAnima_v175.safetensors",
+    "size_bytes": 5628188650,
+    "size_gb": 5.24,
+    "sha256": "c5bf59eb82641f2ea47509171ddb79596d6edaa683dc23a32596688d64adbc72",
+    "autov2": "C5BF59EB82",
+    "tensors": 1190,
+    "components": {
+      "unet": 685,
+      "text_encoder": 311,
+      "vae": 194
+    }
+  },
+  "merge": {
+    "method": "task-arithmetic",
+    "base": "woomixAnima_v15.safetensors",
+    "scale": 0.3,
+    "donors": [
+      {
+        "name": "Versetility - Diving-Anima_v9.0",
+        "weight": 0.7,
+        "role": "versatility"
+      },
+      {
+        "name": "Details - Terra Rising Unity 3.0 - Turbo",
+        "weight": 0.9,
+        "role": "detail"
+      },
+      {
+        "name": "Composition - hentai_studio_quality-000008",
+        "weight": 0.55,
+        "role": "composition"
+      },
+      {
+        "name": "Consistensy - One obsession_animaV5turbo",
+        "weight": 0.45,
+        "role": "consistency"
+      }
+    ]
+  },
+  "civitai": {
+    "trigger_words": [],
+    "tags": [
+      "anima",
+      "anime",
+      "high quality",
+      "contrast",
+      "merge"
+    ],
+    "license": "CircleStone Labs Non-Commercial License v1.2",
+    "credits": [
+      "Anima base — CircleStone Labs",
+      "Terra Rising: Unity — AntonioArts26",
+      "Diving-Anima",
+      "hentai_studio_quality",
+      "One obsession"
+    ],
+    "settings": {
+      "cfg": "3.0–3.5 (3.2 recommended)",
+      "steps": "30–40",
+      "sampler": "ER-SDE / DPM++ 2M SDE",
+      "scheduler": "Beta, Simple, KL Optimal, SGM Uniform (or beta57 with RES4LYF)",
+      "vae": "qwen_image_vae"
+    }
+  },
+  "validation": {
+    "tuning": {
+      "prompts": 4,
+      "variants": 6,
+      "metric": "Laplacian sharpness, Sobel detail, colourfulness, contrast"
+    },
+    "holdout": {
+      "prompts": 4,
+      "v15_sharpness": 1021,
+      "v175_sharpness": 943,
+      "v15_contrast": 64.2,
+      "v175_contrast": 64.5
+    },
+    "verdict": "equal-or-better on anatomy and scene clarity; sharpness within 8% of v1.5; contrast matched"
+  }
+}
