@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.4 - `status` works again
+
+The 0.5.1 refactor that moved the node-pack evaluator into
+`TOOLS/node-pack-lib.ps1` also deleted `Get-NodePackDrift`, which sat in the same
+block. Every release since then shipped a `status` verb that threw
+`CommandNotFoundException` after printing the model list. No test ran the verb, so
+nothing caught it.
+
+`Get-NodePackDrift` is restored, and `status` is now a preflight and CI check:
+the verb has to run, not merely parse.
+
 ## v0.5.3 - cleanup covers the render preview
 
 The merge test removed its checkpoint and the model link, but left the 0.35 MB

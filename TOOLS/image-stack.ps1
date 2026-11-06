@@ -427,6 +427,14 @@ function Get-DependencyLock {
   catch { Write-Host 'warning    config\dependencies.lock.json is not valid JSON' -ForegroundColor Yellow; return $null }
 }
 
+function Get-NodePackDrift {
+  # Read-only. Never resets, cleans or checks out anything.
+  $lock = Get-DependencyLock
+  $dir = Get-ComfyNodeDir
+  if (-not $lock -or -not $dir) { return @() }
+  return @($lock.node_packs | ForEach-Object { Get-NodePackState $dir $_ })
+}
+
 function Test-NodePack([string]$Name) {
   # A directory is not an installation. Ask the one state evaluator: only a
   # checkout at the pinned commit, in the pinned repository, counts. `dirty`
