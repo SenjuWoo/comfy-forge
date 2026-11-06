@@ -55,6 +55,10 @@ def main():
     }
     a = {k: torch.ones_like(v) for k, v in base.items()}
     b = {k: torch.full_like(v, 3) for k, v in base.items()}
+    # Full checkpoints carry components the donors do not have (encoder, VAE)
+    # and 0-dim scalar tensors, which cannot be viewed as uint8 directly.
+    base["cond_stage_model.transformer.w"] = torch.zeros(3, dtype=torch.bfloat16)
+    base["first_stage_model.scalar"] = torch.tensor(0.5)
     save_file(base, base_path, metadata={
         "modelspec.title": "the-base", "modelspec.architecture": "anima",
         # Provenance that belongs to the BASE only: a merge must not keep it.
@@ -83,6 +87,9 @@ def main():
     check(torch.allclose(got["net.blocks.0.scale_weight"].float(), torch.ones(2)),
           "scale_weight untouched")
     check(got["net.blocks.0.w"].dtype == torch.bfloat16, "output keeps base dtype")
+    check("cond_stage_model.transformer.w" in got, "base-only component kept")
+    check(abs(float(got["first_stage_model.scalar"]) - 0.5) < 1e-6,
+          "0-dim scalar tensor round-trips")
     meta = read_meta(out_path)
     check(meta.get("modelspec.title") == "test-merge", "title written")
     check(meta.get("modelspec.architecture") == "anima", "base metadata preserved")

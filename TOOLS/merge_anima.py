@@ -60,8 +60,11 @@ def numel(shape):
 
 
 def tensor_bytes(t):
-    """Raw little-endian bytes of a contiguous CPU tensor, any float dtype."""
-    return t.contiguous().view(torch.uint8).numpy().tobytes()
+    """Raw little-endian bytes of a contiguous CPU tensor, any float dtype.
+
+    reshape(-1) first: a 0-dim tensor (scalar) cannot be viewed as uint8
+    directly, and full checkpoints do contain scalars."""
+    return t.contiguous().reshape(-1).view(torch.uint8).numpy().tobytes()
 
 
 def open_lazy(path):
@@ -135,8 +138,12 @@ def write_checkpoint(path, keys, shapes, dtypes, producer, metadata):
 
     tmp = path + ".part"
     digest = hashlib.sha256()
+    # The length prefix is part of the file, so it is part of the hash: a
+    # reported digest that skipped it did not match `sha256sum` (publish bug).
+    prefix = struct.pack("<Q", len(raw))
     with open(tmp, "wb") as f:
-        f.write(struct.pack("<Q", len(raw)))
+        f.write(prefix)
+        digest.update(prefix)
         f.write(raw)
         digest.update(raw)
         for key in keys:

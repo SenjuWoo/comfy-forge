@@ -488,12 +488,20 @@ function Invoke-Merge {
       $mirror = Join-Path $comfyDir (Split-Path -Leaf $Out)
       try {
         if (Test-Path -LiteralPath $mirror) { Remove-Item -LiteralPath $mirror -Force }
-        New-Item -ItemType HardLink -Path $mirror -Target $Out -ErrorAction Stop | Out-Null
+        # cmd's mklink is used rather than New-Item -ItemType HardLink: the PS
+        # cmdlet has been seen to report success while producing a separate copy.
+        $null = & cmd.exe /c "mklink /H `"$mirror`" `"$Out`"" 2>&1
+        # Verify instead of trusting the exit code: fsutil lists every path that
+        # shares the file ID, so both names must appear.
+        $links = (& cmd.exe /c "fsutil hardlink list `"$mirror`"" 2>$null) -join ' '
+        if (-not ($links -match [regex]::Escape((Split-Path -Leaf $Out)))) {
+          throw 'hard link did not take'
+        }
         Ok "linked into ComfyUI: $mirror"
       }
       catch {
         Copy-Item -LiteralPath $Out -Destination $mirror -Force
-        Ok "copied into ComfyUI: $mirror (different volume)"
+        Ok "copied into ComfyUI: $mirror"
       }
     }
   }
