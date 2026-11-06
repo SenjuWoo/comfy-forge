@@ -53,12 +53,6 @@ jobs:
         shell: pwsh
         run: ./TESTS/Test-Version.ps1
 
-      - name: Version file present
-        shell: pwsh
-        run: |
-          if (-not (Test-Path VERSION)) { throw 'VERSION file missing' }
-          Get-Content VERSION
-
       - name: MCP integration
         shell: pwsh
         timeout-minutes: 6
@@ -67,4 +61,3 @@ jobs:
           $code = $LASTEXITCODE
           if ($code -eq 3) { Write-Host "::warning::MCP real operation UNVERIFIED (no backend)"; exit 0 }
           if ($code -ne 0) { exit $code }
-        timeout-minutes: 4        # npx downloads the server; never hang the job
