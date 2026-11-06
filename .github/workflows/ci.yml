@@ -64,6 +64,8 @@ jobs:
 
       - name: Dependency lock (pins must resolve upstream)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python TOOLS/validate-lock.py
           $code = $LASTEXITCODE
