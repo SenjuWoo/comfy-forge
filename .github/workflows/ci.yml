@@ -34,6 +34,9 @@ jobs:
       - name: Merge math
         run: python TESTS/test_merge.py
 
+      - name: Merge artifacts (ownership, cleanup, failed copy)
+        run: python TESTS/test_merge_artifacts.py
+
       - name: Model install safety (ownership, crash recovery, real HTTP resume)
         shell: powershell
         run: ./TESTS/Test-ModelInstall.ps1

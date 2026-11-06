@@ -47,6 +47,7 @@ Run-Check 'node pack state'   'powershell' @('-NoProfile', '-ExecutionPolicy', '
 Run-Check 'release identity'  'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Release.ps1')
 Run-Check 'version'           'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Version.ps1')
 Run-Check 'merge math'        $py @('TESTS\test_merge.py')
+Run-Check 'merge artifacts'   $py @('TESTS\test_merge_artifacts.py')
 Run-Check 'deps resolver'     $py @('TOOLS\check_deps.py', '--self-test')
 Run-Check 'workflow structure' $py @('TESTS\validate_workflows.py') 3
 Run-Check 'workflow convert'  $py @('TESTS\test_workflow_convert.py')

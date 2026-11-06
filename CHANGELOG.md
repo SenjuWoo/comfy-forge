@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.5.2 - maintenance
+
+Follow-up to 0.5.1. No behaviour changes for a normal run.
+
+### Fixed
+
+- **A failed merge test could leave 4.18 GB behind.** The saved checkpoint was
+  only registered for cleanup after the file had been exposed to `UNETLoader`, so
+  a failure in between (unreadable safetensors, name collision, link error) left
+  the whole merge in `output/`. It is now registered the moment it exists, and a
+  cross-volume copy that dies midway removes its own half-written file instead of
+  leaving a truncated model. Collision refusal is unchanged, and no pre-existing
+  file is ever removed.
+- **`0.5.1-rc.1` satisfied the `0.5.1` heading check.** The changelog test matched
+  a version prefix. It now compares the version token exactly, and the matcher is
+  self-tested against `0.5.1-rc.1`, `0.5.10` and an unversioned heading.
+
+### Added
+
+- `TESTS/test_merge_artifacts.py` - failure injection for the merge test's
+  artifacts: hard link vs copy, collision refusal, mid-copy failure, free-space
+  refusal, and cleanup in keep and remove modes.
+
 ## v0.5.1 - safety patch after v0.5.0
 
 `v0.5.0` shipped with a stable tag on a tree that still declared `0.5.0-rc.5`,

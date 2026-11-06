@@ -29,6 +29,9 @@ jobs:
       - name: Merge math
         run: python TESTS/test_merge.py
 
+      - name: Merge artifacts (ownership, cleanup, failed copy)
+        run: python TESTS/test_merge_artifacts.py
+
       - name: Workflow structure and shipped recipe
         shell: pwsh
         run: |
