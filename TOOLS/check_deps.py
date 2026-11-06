@@ -44,10 +44,9 @@ def read_pyproject(path):
         return [], ["pyproject.toml present but this Python has no tomllib"]
     data = tomllib.loads(open(path, encoding="utf-8").read())
     project = data.get("project") or {}
-    reqs = list(project.get("dependencies") or [])
-    for group in (project.get("optional-dependencies") or {}).values():
-        reqs.extend(group or [])
-    return reqs, []
+    # Only core dependencies are mandatory. Extras are opt-in features; pulling
+    # them all in would install packages the user never asked for.
+    return list(project.get("dependencies") or []), []
 
 
 def parse_manifest(pack_dir):
@@ -65,6 +64,14 @@ def parse_manifest(pack_dir):
                 seen.add(key)
                 reqs.append(r)
     return reqs, unsupported
+
+
+def packaging_available():
+    try:
+        import packaging.requirements  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 def satisfied(spec):
@@ -157,11 +164,24 @@ def main():
                            "requirements": [], "missing": [], "unsupported": []})
             continue
         reqs, unsupported = parse_manifest(pack)
+        entry = {"pack": name, "present": True, "requirements": reqs,
+                 "missing": [], "unsupported": unsupported, "status": "ok",
+                 "error": None}
+        if reqs and not packaging_available():
+            # Without packaging, a version constraint cannot be evaluated. That
+            # is a failed validation, not a pass with unknowns.
+            entry["status"] = "failed"
+            entry["error"] = ("the 'packaging' library is missing from this "
+                              "interpreter, so constraints cannot be checked")
+            report.append(entry)
+            continue
         missing = [r for r in reqs if satisfied(r) is False]
         unknown = [r for r in reqs if satisfied(r) is None]
-        unsupported.extend(unknown)
-        report.append({"pack": name, "present": True, "requirements": reqs,
-                       "missing": missing, "unsupported": unsupported})
+        if unknown:
+            entry["status"] = "failed"
+            entry["error"] = "unparseable requirement(s): " + ", ".join(unknown)
+        entry["missing"] = missing
+        report.append(entry)
     print(json.dumps(report, indent=2))
     return 0
 

@@ -54,6 +54,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default=os.environ.get("COMFYUI_URL", "http://127.0.0.1:7821"))
     ap.add_argument("--timeout", type=int, default=420)
+    # The test contract names what must be exercised. Silently picking "the first
+    # checkpoint" would report PASS for a different model than the one claimed.
+    ap.add_argument("--checkpoint", default="woomixAnima_v175")
+    ap.add_argument("--scheduler", default="beta57")
+    ap.add_argument("--allow-any", action="store_true",
+                    help="permit a fallback model/scheduler (reported as such)")
     args = ap.parse_args()
     base = args.url.rstrip("/")
 
@@ -81,7 +87,14 @@ def main():
         return 1
 
     ckpts = info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
-    ckpt = pick(ckpts, "woomixAnima_v175", "woomix", "Anima")
+    ckpt = next((c for c in ckpts if args.checkpoint.lower() in str(c).lower()), None)
+    if not ckpt:
+        if not args.allow_any:
+            print(f"FAIL required checkpoint '{args.checkpoint}' is not visible to "
+                  f"CheckpointLoaderSimple (pass --allow-any to accept a substitute)")
+            return 1
+        ckpt = pick(ckpts, "woomix", "Anima")
+        print(f"note checkpoint  substituting {ckpt} (not the required model)")
     if not ckpt:
         print("FAIL no checkpoint is visible to CheckpointLoaderSimple")
         return 1
@@ -90,7 +103,14 @@ def main():
     samplers = info["KSampler"]["input"]["required"]["sampler_name"][0]
     scheds = info["KSampler"]["input"]["required"]["scheduler"][0]
     sampler = pick(samplers, "euler")
-    sched = pick(scheds, "beta57", "normal")
+    sched = next((x for x in scheds if args.scheduler.lower() in str(x).lower()), None)
+    if not sched:
+        if not args.allow_any:
+            print(f"FAIL required scheduler '{args.scheduler}' is not registered "
+                  f"(pass --allow-any to accept a substitute)")
+            return 1
+        sched = pick(scheds, "normal")
+        print(f"note sampler     substituting scheduler {sched}")
     print(f"ok   sampler     {sampler} / {sched}")
 
     prompt = {
@@ -157,9 +177,9 @@ def main():
     try:
         from PIL import Image
     except ImportError:
-        print("note PIL missing, skipped the pixel check")
-        print("INTEGRATION: PASS (image returned, pixels unverified)")
-        return 0
+        # An image arriving proves the graph ran, not that it rendered anything.
+        print("UNVERIFIED: Pillow is missing, so the pixels cannot be checked")
+        return 3
     import io
     im = Image.open(io.BytesIO(data)).convert("L")
     hist = im.histogram()

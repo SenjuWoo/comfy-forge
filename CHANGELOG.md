@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.5.0-rc.4 - closeout
+
+### Fixed
+
+- **A logging helper that does not exist could lose a checkpoint.** The model
+  installer moved an existing file aside, then called `Write-UabsNote` - defined
+  nowhere in this repo - and the backup move sat outside the `try`. One missing
+  function and the destination was gone. Model installation is now one
+  transaction in `TOOLS/model-install-lib.ps1`: stage, verify size and SHA-256,
+  back up, publish, roll back. Logging failures are swallowed by design.
+- **The staging path was doubled.** The wrapper passed `file.part` into a function
+  that appended `.part` again. There is now exactly one staging path, unique per
+  run, cleaned only by the operation that owns it.
+- **The lock pinned a commit that does not exist.** `fb2b26f` is a ComfyUI
+  commit: the build machine's pack folder carried ComfyUI's `.git`, so the
+  installer recorded the wrong repository's HEAD. HaDeS is now pinned to
+  `3c0a603` (v0.4.7), verified by cloning it and confirming 25 node classes,
+  including `HaDeSAnimaMultiModelMerger` and `HaDeSAnimaModelSaver`.
+- **A failed checkout counted as installed.** Install now verifies HEAD after
+  checkout and fails; pack state distinguishes `locked / drift / dirty /
+  foreign-repo / unverifiable / missing` instead of "folder exists".
+- **Encoder and VAE tensors could be blended.** The merge now classifies every
+  tensor (`diffusion / encoder / vae / adapter / scale / other`) and only
+  diffusion weights merge; everything else is copied from the base.
+- **A checkpoint with two spellings of one tensor** (`net.x` and
+  `model.diffusion_model.x`) was merged by silently picking one; it is refused.
+- **Merge failures deleted an unrelated `<output>.part`.** The writer owns its
+  unique staging file; the outer handler no longer touches anything.
+- **Full checkpoints were mirrored into `diffusion_models`**, where
+  `CheckpointLoaderSimple` cannot see them. The merge now reports whether the
+  result carries encoder+VAE and routes it to `models/checkpoints` or
+  `models/diffusion_models` accordingly.
+- **Dependency validation could pass while unresolved.** Optional extras are no
+  longer treated as mandatory, a missing `packaging` is a failed validation, and
+  unsupported or unverified requirements make the install exit nonzero.
+- **`Extensions` was treated as `custom_nodes`.** Removed: a node pack installed
+  there registers nothing.
+
+### Added
+
+- `TOOLS/validate-lock.py` - schema plus "does this commit exist in the repo the
+  lock names", with UNVERIFIED when the network cannot answer.
+- `TOOLS/preflight.ps1` - one command, every local check, an explicit release
+  verdict that blocks on failures *and* on unverified checks.
+- `docs/MAINTAINERS.md` - ownership map, the rules that exist because they were
+  violated, and the release sequence.
+- MCP proof is now a real workflow: `TESTS/test_mcp_handshake.py --workflow`
+  enqueues through the MCP tool and waits for a rendered image.
+
+### Verified live (RTX 4080 SUPER, ComfyUI 0.44.0, HaDeS 0.4.7)
+
+```
+integration_live.py --url http://127.0.0.1:7821
+  backend ComfyUI 0.44.0 | HaDeS 25 nodes | euler/beta57 | 512x512 mean=119.4
+  INTEGRATION: PASS
+test_mcp_handshake.py --workflow
+  generate_image -> enqueued 665c13d5 | rendered ComfyUI_00001_.png
+  MCP: PASS (workflow executed)
+```
+
 ## v0.5.0-rc.3 - third candidate
 
 ### Fixed

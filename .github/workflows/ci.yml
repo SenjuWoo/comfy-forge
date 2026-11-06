@@ -62,6 +62,14 @@ jobs:
       - name: Workflow lineage gate self-test (synthetic)
         run: python TESTS/validate_workflows.py --self-test
 
+      - name: Dependency lock (pins must resolve upstream)
+        shell: pwsh
+        run: |
+          python TOOLS/validate-lock.py
+          $code = $LASTEXITCODE
+          if ($code -eq 3) { Write-Host "::warning::lock pins UNVERIFIED (no network)"; exit 0 }
+          if ($code -ne 0) { exit $code }
+
       - name: Version consistency
         shell: pwsh
         run: ./TESTS/Test-Version.ps1

@@ -51,7 +51,17 @@ that is expected on CI and must never be reported as a pass.
 
 It submits an API-format graph (not a UI-save file, which `/prompt` rejects),
 waits for completion, downloads the image and checks the pixels are not flat.
-Exit 0 means a real render happened; exit 3 means no backend was reachable.
+The checkpoint and scheduler are named, and a substitute is refused unless
+`--allow-any` is passed; without Pillow the result is UNVERIFIED, because an
+image arriving does not prove it rendered.
+
+The MCP surface is proven separately, including a real submission:
+
+```powershell
+python TESTS	est_mcp_handshake.py --workflow
+```
+
+That enqueues through the MCP tool and waits for the job to produce an image.
 
 ## Node-pack dependency checks
 

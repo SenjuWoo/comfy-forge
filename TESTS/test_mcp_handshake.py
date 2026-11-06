@@ -29,7 +29,9 @@ def detect_port():
     return None
 
 
-def main():
+def main(argv=None):
+    argv = argv if argv is not None else sys.argv[1:]
+    want_workflow = "--workflow" in argv
     port = detect_port()
     print(f"ok   backend detected on 127.0.0.1:{port}" if port
           else "note no ComfyUI backend is running; handshake only")
@@ -85,7 +87,71 @@ def main():
         system = json.loads(body)["system"]
         ram = round(system.get("ram_total", 0) / 1e9)
         print(f"ok   get_system_stats -> ComfyUI {system.get('comfyui_version')}, {ram} GB RAM")
-        print("MCP: PASS (real backend operation)")
+        if not want_workflow:
+            print("MCP: PASS (real backend operation)")
+            return 0
+
+        # A real submission through the MCP surface, not just a stats read.
+        # The checkpoint and scheduler are named so this cannot pass on a
+        # different model than the one it claims to have used.
+        # Use the loader's real id ("Anima\woomix..."), not a bare filename:
+        # a name the loader cannot resolve is a test bug, not a backend failure.
+        import urllib.request as _ur
+        with _ur.urlopen(f"http://127.0.0.1:{port}/object_info/CheckpointLoaderSimple", timeout=20) as r:
+            oi = json.loads(r.read().decode())
+        ckpts = oi["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
+        ckpt = next((c for c in ckpts if "woomixAnima_v175" in str(c)), None)
+        if not ckpt:
+            print("UNVERIFIED: the merge checkpoint is not visible to CheckpointLoaderSimple")
+            return 3
+        print(f"note submitting a workflow through MCP with {ckpt} ...")
+        # Compact mode exposes meta-tools only; the real call goes through
+        # call_tool with the tool name and its args, exactly as a client would.
+        run = send(5, "tools/call", {"name": "call_tool", "arguments": {"name": "generate_image", "args": {
+            "action": "image",
+            "prompt": "a red fox in snow, sharp focus",
+            "width": 512, "height": 512, "steps": 6,
+            "checkpoint": ckpt,
+            "sampler": "euler", "scheduler": "beta57",
+        }}})
+        text = run.get("result", {}).get("content", [{}])[0].get("text", "")
+        if run.get("error") or not text:
+            print("FAIL MCP workflow submission: " + json.dumps(run)[:300])
+            return 1
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            print("FAIL MCP workflow returned non-JSON: " + text[:300])
+            return 1
+        pid = payload.get("prompt_id")
+        if payload.get("status") != "enqueued" or not pid:
+            print("FAIL MCP workflow was not enqueued: " + text[:300])
+            return 1
+        print(f"ok   generate_image -> enqueued {pid}")
+
+        # Enqueued is not rendered. Wait for the backend to finish the job and
+        # confirm an image actually exists in its history.
+        import time
+        import urllib.request
+        deadline = time.time() + 300
+        image = None
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/history/{pid}", timeout=20) as r:
+                    hist = json.loads(r.read().decode())
+            except Exception:
+                hist = {}
+            if pid in hist:
+                outs = hist[pid].get("outputs", {})
+                image = next((i for o in outs.values() for i in o.get("images", [])), None)
+                break
+            time.sleep(2)
+        if not image:
+            print("FAIL the MCP-submitted job produced no image within 300s")
+            return 1
+        print(f"ok   rendered      {image['filename']}")
+        print("MCP: PASS (workflow executed)")
         return 0
     finally:
         proc.kill()

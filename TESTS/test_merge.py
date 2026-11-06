@@ -323,6 +323,55 @@ def main():
     leftovers = [f for f in os.listdir(tmp) if ".part-" in f]
     check(not leftovers, "a failed write cleans up its staging file")
 
+
+    # --- encoder and VAE never blend, even when both files carry them --------
+    fp = os.path.join(tmp, "full-base.safetensors")
+    fdp = os.path.join(tmp, "full-donor.safetensors")
+    fout = os.path.join(tmp, "full-out.safetensors")
+    full_base = {
+        "net.blocks.0.w": torch.full((2, 2), 1.0, dtype=torch.bfloat16),
+        "model.diffusion_model.blocks.1.w": torch.full((2,), 2.0, dtype=torch.bfloat16),
+        "cond_stage_model.qwen.w": torch.full((2, 2), 0.5, dtype=torch.bfloat16),
+        "first_stage_model.dec.w": torch.full((2, 2), 0.25, dtype=torch.bfloat16),
+        "vae.encoder.w": torch.full((2,), 0.75, dtype=torch.bfloat16),
+        "unknown.component.w": torch.full((2,), 9.0, dtype=torch.bfloat16),
+    }
+    full_donor = {
+        "net.blocks.0.w": torch.full((2, 2), 5.0, dtype=torch.bfloat16),
+        "model.diffusion_model.blocks.1.w": torch.full((2,), 8.0, dtype=torch.bfloat16),
+        "cond_stage_model.qwen.w": torch.full((2, 2), 7.0, dtype=torch.bfloat16),
+        "first_stage_model.dec.w": torch.full((2, 2), 6.0, dtype=torch.bfloat16),
+        "vae.encoder.w": torch.full((2,), 4.0, dtype=torch.bfloat16),
+        "unknown.component.w": torch.full((2,), 1.0, dtype=torch.bfloat16),
+    }
+    save_file(full_base, fp); save_file(full_donor, fdp)
+    merge_anima.main(["--base", fp, "--donor", fdp, "--weights", "1.0", "--out", fout])
+    got = load_file(fout)
+    for key in ("cond_stage_model.qwen.w", "first_stage_model.dec.w", "vae.encoder.w",
+                "unknown.component.w"):
+        check(torch.equal(got[key], full_base[key]),
+              f"'{key}' is preserved from the base, never blended")
+    check(not torch.equal(got["net.blocks.0.w"], full_base["net.blocks.0.w"]),
+          "diffusion weights are blended")
+    check(not torch.equal(got["model.diffusion_model.blocks.1.w"],
+                          full_base["model.diffusion_model.blocks.1.w"]),
+          "prefixed diffusion weights are blended too")
+
+    # --- a failed merge must not delete an unrelated .part file -------------
+    foreign = fout + ".part"
+    with open(foreign, "wb") as f:
+        f.write(b"belongs to someone else")
+    real_verify = merge_anima.verify_checkpoint
+    merge_anima.verify_checkpoint = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+    try:
+        merge_anima.main(["--base", fp, "--donor", fdp, "--weights", "1.0", "--out", fout, "--force"])
+    except RuntimeError:
+        pass
+    finally:
+        merge_anima.verify_checkpoint = real_verify
+    check(open(foreign, "rb").read() == b"belongs to someone else",
+          "a failed merge leaves an unrelated .part file untouched")
+
     print("MERGE MATH: " + ("PASS" if FAIL == 0 else f"{FAIL} FAILED"))
     return 1 if FAIL else 0
 

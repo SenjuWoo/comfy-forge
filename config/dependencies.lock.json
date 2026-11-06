@@ -11,23 +11,38 @@
     {
       "name": "hades-anima-suite",
       "url": "https://github.com/Devildonia/HaDeS-Anima-Suite.git",
-      "sha": "fb2b26fdac507b7da81277c7becaf54c5e46ac6b",
-      "version": "0.4.5",
+      "sha": "3c0a60363fab44828270128f6180e9066342c904",
+      "version": "0.4.7",
       "provides": [
         "HaDeSAnimaMultiModelMerger",
         "HaDeSAnimaModelSaver",
         "HaDeSAnimaModelBlockMerger"
       ],
-      "python_requirements": ["safetensors", "scipy"],
-      "notes": "Verified locally: 25 node classes register, live API render passes. Upstream main has moved to 0.4.7 (3c0a6036); that revision is NOT pinned because it has not been exercised here yet."
+      "python_requirements": [
+        "safetensors",
+        "scipy"
+      ],
+      "notes": "Supersedes the previous pin (fb2b26f), which was not a HaDeS commit at all: the build machine's pack folder carried ComfyUI's .git metadata, so the recorded SHA belonged to Comfy-Org/ComfyUI and could never resolve here. Lock entries are now checked against their declared origin.",
+      "verified": "2026-11-06: cloned from upstream at this SHA, 25 node classes register, HaDeSAnimaMultiModelMerger and HaDeSAnimaModelSaver present, live render passes."
     },
     {
       "name": "RES4LYF",
       "url": "https://github.com/ClownsharkBatwing/RES4LYF.git",
       "sha": "6780724de0ddb98e7454d54bb80387836a911ece",
       "version": null,
-      "provides": ["beta57", "bong_tangent", "res_2s", "res_2m", "res_multistep"],
-      "python_requirements": ["opencv-python", "matplotlib", "pywavelets", "numpy>=1.26.4"],
+      "provides": [
+        "beta57",
+        "bong_tangent",
+        "res_2s",
+        "res_2m",
+        "res_multistep"
+      ],
+      "python_requirements": [
+        "opencv-python",
+        "matplotlib",
+        "pywavelets",
+        "numpy>=1.26.4"
+      ],
       "notes": "Adds 2 schedulers (9 -> 11) and 19 samplers (45 -> 64) to KSampler; SwarmUI merges those lists at backend connect."
     }
   ],
@@ -40,5 +55,6 @@
   ],
   "models": {
     "//": "Hashes live in presets/anima-manifest.json; they are the download contract and are checked on every install."
-  }
+  },
+  "lock_format": 2
 }
