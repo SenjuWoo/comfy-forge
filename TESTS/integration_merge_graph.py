@@ -280,6 +280,12 @@ def main():
         with urllib.request.urlopen(base + "/view?" + q, timeout=120) as r:
             data = r.read()
         print("ok   render    %s (%d bytes)" % (img["filename"], len(data)))
+        # SaveImage writes a preview into output/ next to the merge; it belongs to
+        # this run too, so cleanup covers it unless --keep-artifacts is set.
+        if not img.get("subfolder"):
+            preview = os.path.join(os.path.dirname(saved_path), img["filename"])
+            if os.path.exists(preview) and preview not in created:
+                created.append(preview)
         from PIL import Image
         im = Image.open(io.BytesIO(data)).convert("L")
         hist = im.histogram()
