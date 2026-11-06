@@ -74,6 +74,10 @@ if (Test-Path -LiteralPath $common) {
   }
 }
 
+# Model installation transaction: shared with TESTS/Test-ModelInstall.ps1 so the
+# tests exercise this code rather than a copy of it.
+. (Join-Path $PSScriptRoot 'model-install-lib.ps1')
+
 function Test-UabsSwarmUIRoot([string]$Path) {
   if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
   return (Test-Path -LiteralPath (Join-Path $Path 'SwarmUI.sln') -PathType Leaf) -and
@@ -229,105 +233,6 @@ function Test-UabsFileHash {
   return ($actual -ieq ([string]$Sha256).ToLowerInvariant())
 }
 
-function Save-UabsModelFile {
-  param([string]$Url, [string]$Destination, [long]$ExpectedBytes, [string]$ExpectedSha256, [bool]$Offline)
-  $dir = Split-Path -Parent $Destination
-  if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-  $part = $Destination + '.part'
-  if ($Offline) { throw ('offline mode: cannot download ' + (Split-Path -Leaf $Destination)) }
-
-  $curl = $null
-  foreach ($cand in @(Get-Command curl.exe -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object Source)) {
-    if ($cand) { $curl = $cand; break }
-  }
-  Write-UabsStep ('Download ' + (Split-Path -Leaf $Destination))
-  if ($curl) {
-    # -C - resumes a partial file; -L follows HF's redirect to the CDN.
-    # Stderr goes to a FILE, never the pipeline: under
-    # $ErrorActionPreference='Stop' a 2>&1 merge turns curl's progress lines
-    # into terminating NativeCommandError records and aborts the download.
-    # Keeping the call un-piped also means $LASTEXITCODE is curl's own.
-    #
-    # -sS matters just as much: without -s curl writes its progress meter
-    # ("% Total % Received ...") to stderr, and under 'Stop' that first line
-    # alone throws a RemoteException that kills a perfectly good download.
-    # -sS keeps the meter off while still surfacing genuine errors.
-    $errLog = Join-Path ([IO.Path]::GetTempPath()) ('uabs-curl-' + [guid]::NewGuid().ToString('N') + '.log')
-    try {
-      & $curl -sS -L --fail -C - --output $part $Url 2> $errLog
-      $code = [int]$LASTEXITCODE
-      if ($code -ne 0) {
-        $tail = ''
-        if (Test-Path -LiteralPath $errLog) { $tail = ((Get-Content -LiteralPath $errLog -Tail 3) -join ' | ') }
-        throw ('curl failed (exit ' + $code + ') downloading ' + $Url + ' ' + $tail)
-      }
-      if (Test-Path -LiteralPath $errLog) {
-        $lastLine = Get-Content -LiteralPath $errLog -Tail 1
-        if ($lastLine) { Write-UabsInfo ([string]$lastLine) }
-      }
-    } finally {
-      Remove-Item -LiteralPath $errLog -Force -ErrorAction SilentlyContinue
-    }
-  } else {
-    $headers = @{ 'User-Agent' = 'Ultimate-AI-Starter-Bundle-Anima' }
-    Invoke-WebRequest -Uri $Url -OutFile $part -Headers $headers -TimeoutSec 3600 -UseBasicParsing
-  }
-
-  $got = (Get-Item -LiteralPath $part).Length
-  if ($got -ne $ExpectedBytes) {
-    Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
-    throw ('size mismatch for ' + (Split-Path -Leaf $Destination) + ': expected ' + $ExpectedBytes + ' bytes, got ' + $got)
-  }
-  if (-not (Test-UabsFileHash -Path $part -Sha256 $ExpectedSha256)) {
-    Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
-    throw ('SHA-256 mismatch for ' + (Split-Path -Leaf $Destination) + '; refused to install.')
-  }
-  Move-Item -LiteralPath $part -Destination $Destination -Force
-  Write-UabsOk ('verified and installed ' + $Destination)
-  return $Destination
-}
-
-function Save-UabsModelFileSafely {
-  # Publish a verified download without destroying a file that was already
-  # there. A checkpoint whose name matches the manifest but whose bytes do not
-  # may be the user's own merge or an older build - it gets a backup, never a
-  # silent overwrite, and it is put back if publication fails.
-  param(
-    [Parameter(Mandatory)] [string]$Destination,
-    [Parameter(Mandatory)] [string]$Url,
-    [Parameter(Mandatory)] [long]$ExpectedBytes,
-    [Parameter(Mandatory)] [string]$ExpectedSha256
-  )
-  $backup = $null
-  if (Test-Path -LiteralPath $Destination) {
-    if (Test-UabsFileHash -Path $Destination -Sha256 $ExpectedSha256) {
-      Write-UabsOk ('already present and verified ' + $Destination)
-      return $Destination
-    }
-    $backup = $Destination + '.replaced-' + (Get-Date -Format 'yyyyMMdd-HHmmss') +
-              '-' + ([guid]::NewGuid().ToString('N').Substring(0, 6))
-    Move-Item -LiteralPath $Destination -Destination $backup -Force
-    Write-UabsNote ('existing file kept as ' + (Split-Path -Leaf $backup))
-  }
-  try {
-    $part = $Destination + '.part'
-    Save-UabsModelFile -Destination $part -Url $Url -ExpectedBytes $ExpectedBytes -ExpectedSha256 $ExpectedSha256
-    Move-Item -LiteralPath $part -Destination $Destination -Force
-    Write-UabsOk ('verified and installed ' + $Destination)
-    if ($backup) { Write-UabsNote ('previous file retained: ' + $backup) }
-    return $Destination
-  } catch {
-    if (Test-Path -LiteralPath $Destination) {
-      Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
-    }
-    if ($backup -and (Test-Path -LiteralPath $backup)) {
-      Move-Item -LiteralPath $backup -Destination $Destination -Force
-      Write-UabsNote ('restored the previous file after a failed install')
-    }
-    throw
-  }
-}
-
 function Get-UabsPreviousFrontends {
   $path = Join-Path (Get-UabsStateRoot) 'anima-swarmui.json'
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @() }
@@ -420,9 +325,11 @@ function Install-UabsAnimaIntoFrontend {
         $row.status = 'not downloaded (offline)'
         Write-UabsInfo ($entry.filename + ' - missing; offline mode, not downloaded')
       } else {
-        # Safe publish: a filename match is not proof the file is ours.
-        [void](Save-UabsModelFileSafely -Url ([string]$entry.url) -Destination $dest `
-          -ExpectedBytes ([long]$entry.bytes) -ExpectedSha256 ([string]$entry.sha256))
+        # One transaction: stage, verify, back up, publish, roll back on failure.
+        $result = Install-ModelFile -Destination $dest -Url ([string]$entry.url) `
+          -ExpectedBytes ([long]$entry.bytes) -ExpectedSha256 ([string]$entry.sha256) `
+          -Log { param($m) Write-UabsInfo $m }
+        if ($result.State -eq 'failed') { throw $result.Message }
         $row.status = 'installed and verified'
         Set-UabsCachedHash -Path $dest -Sha256 ([string]$entry.sha256) -Cache $Cache
       }

@@ -105,8 +105,21 @@ def canon(key):
 
 
 def donor_index(header):
-    """canonical name -> actual key in that donor file."""
-    return {canon(k): k for k in header}
+    """canonical name -> actual key in that donor file.
+
+    Two spellings of the same tensor (`net.x` and `model.diffusion_model.x`) mean
+    the file is internally ambiguous; picking one silently would blend the wrong
+    weights, so the caller refuses instead.
+    """
+    index = {}
+    for key in header:
+        ck = canon(key)
+        if ck in index and index[ck] != key:
+            raise ValueError(
+                f"{key!r} and {index[ck]!r} describe the same tensor; "
+                f"the checkpoint has duplicate canonical names")
+        index[ck] = key
+    return index
 
 
 def block_indices(header):
@@ -134,6 +147,34 @@ def merge_key(method, base, donors, weights, scale):
         acc = part if acc is None else acc + part
     out = b + scale * acc if method == "task-arithmetic" else scale * acc
     return out
+
+
+# Which part of a checkpoint a tensor belongs to. Only diffusion weights may be
+# blended: averaging two text encoders or two VAEs produces a file that loads and
+# renders nonsense, and the caller has no way to notice.
+DIFFUSION_PREFIXES = ("net.", "model.diffusion_model.", "diffusion_model.")
+ENCODER_PREFIXES = ("cond_stage_model.", "text_encoder.", "text_encoders.",
+                    "conditioner.", "te.")
+VAE_PREFIXES = ("first_stage_model.", "vae.")
+
+
+def tensor_role(key):
+    """Classify a tensor key: diffusion | encoder | vae | adapter | scale | other.
+
+    Unknown components are treated as "other" and preserved from the base on
+    purpose: merging something we cannot name is how a checkpoint gets ruined.
+    """
+    if key.endswith(".scale_weight"):
+        return "scale"
+    if "llm_adapter" in key:
+        return "adapter"
+    if key.startswith(ENCODER_PREFIXES):
+        return "encoder"
+    if key.startswith(VAE_PREFIXES):
+        return "vae"
+    if key.startswith(DIFFUSION_PREFIXES):
+        return "diffusion"
+    return "other"
 
 
 def verify_checkpoint(path, keys, shapes, dtypes):
@@ -237,6 +278,8 @@ def main(argv=None):
                     help="merge llm_adapter tensors instead of keeping the base copy")
     ap.add_argument("--dry-run", action="store_true",
                     help="report what would merge, write nothing")
+    ap.add_argument("--report", metavar="FILE",
+                    help="write a small JSON summary (roles, counts, full_checkpoint)")
     ap.add_argument("--force", action="store_true", help="overwrite an existing --out file")
     ap.add_argument("--allow-topology-mismatch", action="store_true",
                     help="merge even when the donor has a different block count (usually garbage)")
@@ -279,10 +322,17 @@ def main(argv=None):
 
     donors = [open_lazy(p) for p in args.donor]
     donor_headers = [read_header(p)[0] for p in args.donor]
-    donor_keys = [donor_index(h) for h in donor_headers]
+    try:
+        donor_keys = [donor_index(h) for h in donor_headers]
+    except ValueError as e:
+        sys.exit(str(e))
+    try:
+        donor_index(base_header)
+    except ValueError as e:
+        sys.exit(str(e))
     base = open_lazy(args.base)
 
-    keys, shapes, dtypes, can_merge = [], {}, {}, {}
+    keys, shapes, dtypes, can_merge, roles = [], {}, {}, {}, {}
     merged = kept = skipped = nonfloat = 0
     for key, info in base_header.items():
         if info["dtype"] not in ITEM_SIZE:
@@ -297,9 +347,14 @@ def main(argv=None):
         # converting them would corrupt the file without saying so.
         # A tensor that is not present in every donor is carried from the base,
         # so it is not merged and must not be converted either.
-        mergeable = (not key.endswith(".scale_weight")
+        role = tensor_role(key)
+        roles[key] = role
+        # Only diffusion weights blend. `--no-protect-adapter` is the explicit
+        # opt-in for adapters; encoder, VAE and unknown components never merge.
+        eligible = (role == "diffusion"
+                    or (role == "adapter" and args.no_protect_adapter))
+        mergeable = (eligible
                      and info["dtype"] in NAME_DTYPES
-                     and (args.no_protect_adapter or "llm_adapter" not in key)
                      and all(canon(key) in dk for dk in donor_keys))
         can_merge[key] = mergeable
         dtypes[key] = ({"bf16": "BF16", "fp16": "F16", "fp32": "F32"}[args.dtype]
@@ -310,7 +365,12 @@ def main(argv=None):
             nonfloat += 1
             skipped += 1
             continue
-        if args.no_protect_adapter is False and "llm_adapter" in key:
+        if role != "diffusion" and role != "adapter":
+            # Encoder, VAE, scale and unknown components stay exactly as the base
+            # has them; they are counted so the report cannot hide them.
+            kept += 1
+            continue
+        if role == "adapter" and not args.no_protect_adapter:
             kept += 1
             continue
         ck = canon(key)
@@ -358,6 +418,12 @@ def main(argv=None):
     for i, (path, w) in enumerate(zip(args.donor, weights)):
         print(f"share     {w / total_w * 100:6.2f}%  {os.path.basename(path)}")
 
+    census = {}
+    for key, role in roles.items():
+        if role != "diffusion":
+            census[role] = census.get(role, 0) + 1
+    if census:
+        print("preserved " + ", ".join(f"{v} {k}" for k, v in sorted(census.items())))
     if merged == 0:
         sys.exit("nothing to merge: every tensor is protected or missing from a donor")
 
@@ -386,8 +452,12 @@ def main(argv=None):
             "modelspec.license_url", "modelspec.merged_from", "modelspec.date")
     meta = {k: v for k, v in base_meta.items() if k not in DROP}
     meta["modelspec.title"] = args.title or f"{os.path.splitext(os.path.basename(args.out))[0]}"
+    # The description must name the method that actually ran; a weighted-sum
+    # output labelled "task-arithmetic" is a provenance lie.
+    method_label = ("Task-arithmetic merge" if args.method == "task-arithmetic"
+                    else "Weighted-sum merge")
     meta["modelspec.description"] = (
-        f"Task-arithmetic merge of {len(args.donor)} donor(s) over "
+        f"{method_label} of {len(args.donor)} donor(s) over "
         f"{os.path.basename(args.base)} (weights {', '.join(f'{w:g}' for w in weights)}, "
         f"scale {args.scale:g}).")
     meta["modelspec.merge"] = json.dumps({
@@ -403,10 +473,9 @@ def main(argv=None):
         digest, total_bytes = write_checkpoint(args.out, keys, shapes, dtypes,
                                                producer, meta)
     except BaseException:
-        # A half-written file must never be left behind pretending to be a model.
-        part = args.out + ".part"
-        if os.path.exists(part):
-            os.unlink(part)
+        # The writer owns its unique staging file and already removed it. This
+        # handler must not touch `<out>.part`: that name belongs to somebody
+        # else - an older operation, or a file the user created.
         raise
 
     # Trust the file, not the writer: re-read it and compare the inventory.
@@ -414,8 +483,27 @@ def main(argv=None):
     if len(check_header) != len(keys):
         sys.exit(f"write verification failed: {len(check_header)} tensors on disk, "
                  f"{len(keys)} expected")
-    print(f"merged    {merged} tensors, kept {kept} llm_adapter, "
+    print(f"merged    {merged} tensors, kept {kept} non-diffusion, "
           f"preserved {nonfloat} non-float, skipped {skipped}")
+    if args.report:
+        # The CLI needs to know whether this file is loadable by
+        # CheckpointLoaderSimple (encoder+VAE present) or only by a diffusion
+        # loader, because they read different folders. A sidecar report beats
+        # re-parsing a 5 GB header from PowerShell.
+        summary = {
+            "out": os.path.abspath(args.out),
+            "tensors": len(keys),
+            "merged": merged,
+            "roles": census,
+            "full_checkpoint": bool(census.get("encoder") or census.get("vae")),
+            "dtype": args.dtype,
+            "method": args.method,
+            "scale": args.scale,
+            "weights": weights,
+        }
+        with open(args.report, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+
     print(f"wrote     {args.out}  ({total_bytes / 1e9:.2f} GB, {len(keys)} tensors)")
     print(f"sha256    {digest}")
     print(f"elapsed   {time.time() - started:.1f}s")

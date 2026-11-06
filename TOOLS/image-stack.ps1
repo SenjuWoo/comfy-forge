@@ -253,23 +253,35 @@ function Show-Status {
 # ComfyUI install's own packages.
 # ---------------------------------------------------------------------------
 function Get-ComfyModelDir {
-  # ComfyUI's own model tree. SwarmUI keeps Models\Stable-Diffusion; a raw
-  # ComfyUI install (and the HaDeS workflow) reads this folder instead, so a
-  # merge has to exist in both places to be pickable everywhere.
-  $candidates = @()
+  # Model category matters: ComfyUI's checkpoint loaders read `models/checkpoints`
+  # and diffusion-only loaders read `models/diffusion_models`. Putting a full
+  # checkpoint in diffusion_models leaves CheckpointLoaderSimple unable to see it.
+  param([ValidateSet('checkpoint', 'diffusion')] [string]$Kind = 'diffusion')
+  $leaf = if ($Kind -eq 'checkpoint') { 'checkpoints' } else { 'diffusion_models' }
+  $roots = @()
   $swarm = Get-SwarmRoot
-  if ($swarm) { $candidates += (Join-Path $swarm 'dlbackend\comfy\ComfyUI\models\diffusion_models') }
+  if ($swarm) { $roots += (Join-Path $swarm 'dlbackend\comfy\ComfyUI') }
   $comfy = Get-ComfyRoot
-  if ($comfy) { $candidates += (Join-Path $comfy 'models\diffusion_models') }
-  foreach ($c in $candidates) { if (Test-Path -LiteralPath $c) { return $c } }
+  if ($comfy) { $roots += $comfy }
+  foreach ($r in $roots) {
+    $p = Join-Path $r (Join-Path 'models' $leaf)
+    if (Test-Path -LiteralPath $p) { return $p }
+    # Create the registered category folder when the tree exists but the folder
+    # does not yet: ComfyUI reads whatever is under models/.
+    $models = Join-Path $r 'models'
+    if (Test-Path -LiteralPath $models) {
+      try { New-Item -ItemType Directory -Path $p -Force | Out-Null; return $p } catch { }
+    }
+  }
   return $null
 }
 
 function Get-ComfyNodeDir {
   $swarm = Get-SwarmRoot
   if ($swarm) {
-    foreach ($p in @((Join-Path $swarm 'dlbackend\comfy\ComfyUI\custom_nodes'),
-                     (Join-Path $swarm 'Extensions'))) {
+    # SwarmUI's Extensions folder is NOT ComfyUI's custom_nodes; a ComfyUI node
+    # pack installed there registers nothing.
+    foreach ($p in @((Join-Path $swarm 'dlbackend\comfy\ComfyUI\custom_nodes'))) {
       if (Test-Path -LiteralPath $p) { return $p }
     }
   }
@@ -330,8 +342,17 @@ function Install-NodePackDeps([string]$Python) {
   $failures = 0
   foreach ($pack in $report) {
     if (-not $pack.present) { continue }
+    if ($pack.status -eq 'failed') {
+      # A resolver that cannot check is not a resolver that passed.
+      Write-Host ("error      {0}: {1}" -f $pack.pack, $pack.error) -ForegroundColor Red
+      $failures++
+      continue
+    }
     foreach ($u in @($pack.unsupported)) {
-      Write-Host ("note       {0}: cannot replay '{1}' - install it manually" -f $pack.pack, $u) -ForegroundColor Yellow
+      # Reported requirements that pip cannot replay are unresolved by
+      # definition; saying "installed" here would be a false claim.
+      Write-Host ("blocked    {0}: '{1}' cannot be installed automatically - install it yourself" -f $pack.pack, $u) -ForegroundColor Red
+      $failures++
     }
     $missing = @($pack.missing)
     if ($missing.Count -eq 0) {
@@ -361,7 +382,18 @@ function Install-NodePackDeps([string]$Python) {
       continue
     }
     $after = Get-PackDependencyReport $Python $nodeDir
-    $still = @(($after | Where-Object { $_.pack -eq $pack.pack }).missing)
+    if ($null -eq $after) {
+      Write-Host ("error      {0}: post-install verification could not run" -f $pack.pack) -ForegroundColor Red
+      $failures++
+      continue
+    }
+    $entry = @($after | Where-Object { $_.pack -eq $pack.pack })[0]
+    if ($entry.status -eq 'failed') {
+      Write-Host ("error      {0}: {1}" -f $pack.pack, $entry.error) -ForegroundColor Red
+      $failures++
+      continue
+    }
+    $still = @($entry.missing)
     if ($still.Count -gt 0) {
       Write-Host ("error      still unsatisfied after install: {0}" -f ($still -join ', ')) -ForegroundColor Red
       $failures++
@@ -385,24 +417,47 @@ function Get-DependencyLock {
   catch { Write-Host 'warning    config\dependencies.lock.json is not valid JSON' -ForegroundColor Yellow; return $null }
 }
 
+function Get-NodePackState([string]$Dir, $Pin) {
+  # One pack, one honest state. "locked" requires the right repository, the
+  # right commit and no local edits; anything else is named for what it is
+  # rather than rounded up to installed.
+  $dest = Join-Path $Dir $Pin.name
+  if (-not (Test-Path -LiteralPath $dest)) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'missing'; Sha = $null; Detail = $null }
+  }
+  if (-not (Test-CommandExists 'git')) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Detail = 'git missing' }
+  }
+  if (-not (Test-Path -LiteralPath (Join-Path $dest '.git'))) {
+    # A folder can exist without being the repository we pinned (copied pack,
+    # or a checkout that carries somebody else's .git). It cannot be verified.
+    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Detail = 'not a git checkout' }
+  }
+  $origin = (& git -C $dest remote get-url origin 2>$null | Out-String).Trim()
+  $head = (& git -C $dest rev-parse HEAD 2>$null | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or -not $head) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Detail = 'no valid HEAD' }
+  }
+  # The wrong origin is how a ComfyUI commit got recorded as a HaDeS pin.
+  if ($origin -and $origin -ne $Pin.url) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'foreign-repo'; Sha = $head; Detail = $origin }
+  }
+  if ($head -ne $Pin.sha) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'drift'; Sha = $head; Detail = $null }
+  }
+  $dirty = (& git -C $dest status --porcelain 2>$null | Out-String).Trim()
+  if ($dirty) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'dirty'; Sha = $head; Detail = $null }
+  }
+  return [pscustomobject]@{ Name = $Pin.name; State = 'locked'; Sha = $head; Detail = $null }
+}
+
 function Get-NodePackDrift {
-  # Compare what is installed with what is pinned. Read-only: a dirty or
-  # divergent checkout is reported, never reset or overwritten.
+  # Read-only. Never resets, cleans or checks out anything.
   $lock = Get-DependencyLock
   $dir = Get-ComfyNodeDir
   if (-not $lock -or -not $dir) { return @() }
-  $rows = @()
-  foreach ($pin in $lock.node_packs) {
-    $dest = Join-Path $dir $pin.name
-    if (-not (Test-Path -LiteralPath $dest)) {
-      $rows += [pscustomobject]@{ Name = $pin.name; State = 'missing'; Sha = $null }
-      continue
-    }
-    $head = (& git -C $dest rev-parse HEAD 2>$null)
-    $state = if ($head -eq $pin.sha) { 'locked' } else { 'drift' }
-    $rows += [pscustomobject]@{ Name = $pin.name; State = $state; Sha = "$head".Trim() }
-  }
-  return $rows
+  return @($lock.node_packs | ForEach-Object { Get-NodePackState $dir $_ })
 }
 
 function Test-NodePack([string]$Name) {
@@ -428,10 +483,12 @@ function Show-Requirements {
   # Find-Python returns $null when no interpreter exists, and Test-Path on
   # $null throws, so the check has to name the condition explicitly.
   foreach ($p in @(Get-NodePackDrift)) {
-    $msg = '{0} {1}' -f $p.Name, $p.State
-    if ($p.State -eq 'locked') { Ok ('packs    ' + $msg) }
-    elseif ($p.State -eq 'drift') { Note ('packs    ' + $msg + ' (' + $p.Sha.Substring(0,7) + ' vs lock)') }
-    else { Note ('packs    ' + $msg) }
+    $short = if ($p.Sha) { $p.Sha.Substring(0, 7) } else { '?' }
+    $line = 'packs    {0} {1}' -f $p.Name, $p.State
+    if ($p.State -eq 'locked') { Ok $line }
+    elseif ($p.State -eq 'drift') { Note ($line + " ($short, lock pins " + $p.Pin + ')') }
+    elseif ($p.Detail) { Note ($line + ' (' + $p.Detail + ')') }
+    else { Note $line }
   }
   $rows += @{ Name = 'python'; Ok = [bool]($py -and (Test-Path -LiteralPath $py));
               Detail = $(if ($py) { $py } else { 'not found' });
@@ -481,6 +538,7 @@ function Install-MissingRequirements {
   # Node packs. The CLI merge does not need them, but the ComfyUI workflow does,
   # and RES4LYF is what makes beta57 selectable in SwarmUI.
   $dir = Get-ComfyNodeDir
+  $cloneFailures = 0
   foreach ($pack in $NodePacks) {
     if (Test-NodePack $pack.Name) { continue }
     if ($dir -and (Test-CommandExists 'git')) {
@@ -494,12 +552,16 @@ function Install-MissingRequirements {
         $pin = $null
         if ($lock) { $pin = @($lock.node_packs | Where-Object { $_.name -eq $pack.Name })[0] }
         if ($pin -and $pin.sha) {
-          & git -C $dest checkout --quiet $pin.sha
-          if ($LASTEXITCODE -eq 0) {
-            Ok ("node pack -> {0} @ {1}" -f $dest, $pin.sha.Substring(0, 7))
-          } else {
-            Write-Host ("warning    {0} cloned but could not check out {1}" -f $pack.Name, $pin.sha) -ForegroundColor Yellow
+          & git -C $dest checkout --quiet $pin.sha 2>$null
+          $head = (& git -C $dest rev-parse HEAD 2>$null | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -ne $pin.sha) {
+            # A failed checkout is a failed install; reporting success here is
+            # how an unreachable pin looked fine for a whole release.
+            Write-Host ("error      {0}: could not check out {1} (HEAD is {2})" -f $pack.Name, $pin.sha, $head) -ForegroundColor Red
+            $cloneFailures++
+            continue
           }
+          Ok ("node pack -> {0} @ {1}" -f $dest, $pin.sha.Substring(0, 7))
         } else {
           Ok "node pack -> $dest (unpinned: no lock entry)"
         }
@@ -512,8 +574,8 @@ function Install-MissingRequirements {
     }
   }
   $pyForDeps = Find-Python
-  $depFailures = 0
-  if ($pyForDeps) { $depFailures = Install-NodePackDeps $pyForDeps }
+  $depFailures = $cloneFailures
+  if ($pyForDeps) { $depFailures += Install-NodePackDeps $pyForDeps }
   $packsAdded = @($NodePacks | Where-Object { -not (Test-NodePack $_.Name) }).Count -eq 0
   if ($packsAdded -and $fixed -gt 0) {
     Note 'restart SwarmUI so it re-reads the sampler/scheduler list from ComfyUI'
@@ -526,7 +588,7 @@ function Install-MissingRequirements {
   if ($fixed -eq 0) { Ok 'nothing to install' } else { Ok "$fixed component(s) installed" }
   if ($depFailures -gt 0) {
     # A node pack that cannot import is not an installed node pack.
-    Write-Host ("error      {0} node-pack dependency set(s) failed" -f $depFailures) -ForegroundColor Red
+    Write-Host ("error      {0} installation failure(s): node pack checkout or dependency set" -f $depFailures) -ForegroundColor Red
     exit 1
   }
 }
@@ -626,6 +688,8 @@ function Invoke-Merge {
   $python = Find-Python
   $mergeScript = Join-Path $PSScriptRoot 'merge_anima.py'
   $argv = @('--base', $Base, '--out', $Out, '--method', $Method, '--scale', $Scale)
+  $reportPath = Join-Path ([IO.Path]::GetTempPath()) ("comfy-kit-merge-" + [guid]::NewGuid().ToString('N').Substring(0,8) + '.json')
+  $argv += @('--report', $reportPath)
   foreach ($d in $DonorPaths) { $argv += @('--donor', $d) }
   if ($Weights) { $argv += @('--weights', $Weights) }
   if ($Force) { $argv += '--force' }
@@ -666,8 +730,21 @@ function Invoke-Merge {
 
   # Make the merge visible in ComfyUI too. A hard link costs no disk space and
   # keeps both trees in sync; a cross-volume fallback copies the file.
+  $script:MergeWasFullCheckpoint = $false
+  if (Test-Path -LiteralPath $reportPath) {
+    try {
+      $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+      $script:MergeWasFullCheckpoint = [bool]$report.full_checkpoint
+      Note ("output is a {0} ({1} tensors)" -f $(if ($report.full_checkpoint) { 'full checkpoint' } else { 'diffusion-only model' }), $report.tensors)
+    } catch { }
+    Remove-Item -LiteralPath $reportPath -Force -ErrorAction SilentlyContinue
+  }
+
   if (-not $NoMirror) {
-    $comfyDir = Get-ComfyModelDir
+    # A merge made from a full checkpoint carries encoder + VAE and is loadable
+    # by CheckpointLoaderSimple; a UNET-only merge is not.
+    $kind = if ($script:MergeWasFullCheckpoint) { 'checkpoint' } else { 'diffusion' }
+    $comfyDir = Get-ComfyModelDir -Kind $kind
     if ($comfyDir) {
       $r = Set-ModelMirror -Source $Out -DestinationDirectory $comfyDir
       switch ($r.Kind) {

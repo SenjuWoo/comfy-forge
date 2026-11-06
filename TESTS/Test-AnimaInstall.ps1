@@ -46,7 +46,12 @@ Check (@(Get-ChildItem -LiteralPath $swarm -Recurse -Filter '*.part' -ErrorActio
 $text = [IO.File]::ReadAllText($installer)
 Check ($text -notmatch "\@\('C','D','E'") 'no drive-letter scan loop'
 Check ($text -match 'Get-UabsCachedFrontends') 'frontends are reused from state'
-Check ($text -match '-sS') 'curl keeps the silent meter'
+# The downloader now lives in the shared transaction library, so the property
+# is asserted against the file that actually runs curl.
+$libText = [IO.File]::ReadAllText((Join-Path $PackRoot 'TOOLS\model-install-lib.ps1'))
+Check ($libText -match '-sS') 'curl keeps the silent meter'
+Check ($libText -match '-C -') 'curl keeps resumable downloads'
+Check ($libText -notmatch 'Write-UabsNote') 'the transaction does not depend on a helper the fallbacks lack'
 $manifest = [IO.File]::ReadAllText((Join-Path $PackRoot 'presets\anima-manifest.json')) | ConvertFrom-Json
 Check (@($manifest.files).Count -ge 3) 'manifest lists the stack'
 $bad = @($manifest.files | Where-Object { ([string]$_.sha256) -notmatch '^[0-9a-f]{64}$' -or $_.bytes -le 0 -or $_.url -notmatch '^https://' })

@@ -1,7 +1,6 @@
-# Fault-injection tests for the model installer's safe-publish wrapper.
-# The function under test is lifted verbatim from Ensure-AnimaSwarmUI.ps1 so the
-# test cannot drift from the shipped code; the download and hash helpers are
-# stubbed so no network is needed and failures can be injected.
+# Fault-injection tests for the model installation transaction.
+# Loads TOOLS/model-install-lib.ps1 - the production code - so a missing helper
+# or a wrong staging path fails here instead of in a user's model folder.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $fail = 0
@@ -9,74 +8,106 @@ function Check([bool]$cond, [string]$name) {
   if ($cond) { Write-Host "ok   $name" } else { Write-Host "FAIL $name"; $script:fail++ }
 }
 
-$src = Get-Content -LiteralPath (Join-Path $repo 'TOOLS\Ensure-AnimaSwarmUI.ps1') -Raw
-$m = [regex]::Match($src, '(?s)function Save-UabsModelFileSafely \{.*?\r?\n\}\r?\n')
-if (-not $m.Success) { Write-Host 'FAIL could not extract Save-UabsModelFileSafely'; exit 1 }
+. (Join-Path $repo 'TOOLS\model-install-lib.ps1')
 
-# --- stubs ---------------------------------------------------------------
-function Write-UabsOk([string]$m) { }
-function Write-UabsNote([string]$m) { }
-function Write-UabsWarn([string]$m) { }
-function Test-UabsFileHash {
-  param([string]$Path, [string]$Sha256)
-  if (-not (Test-Path -LiteralPath $Path)) { return $false }
-  return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -eq $Sha256)
-}
-$script:Payload = [byte[]](1..32)
-$script:PayloadHash = ''
-$script:FailDownload = $false
-function Save-UabsModelFile {
-  param([string]$Destination, [string]$Url, [long]$ExpectedBytes, [string]$ExpectedSha256)
-  if ($script:FailDownload) { throw 'simulated download failure' }
-  [IO.File]::WriteAllBytes($Destination, $script:Payload)
-  return $Destination
-}
-Invoke-Expression $m.Value
-$script:PayloadHash = (Get-FileHash -LiteralPath (New-TemporaryFile) -Algorithm SHA256).Hash
-$tmp = Join-Path ([IO.Path]::GetTempPath()) ("mk-install-" + [guid]::NewGuid().ToString('N').Substring(0,8))
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("mk-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $tmp | Out-Null
-$probe = Join-Path $tmp 'probe.bin'
-[IO.File]::WriteAllBytes($probe, $script:Payload)
-$script:PayloadHash = (Get-FileHash -LiteralPath $probe -Algorithm SHA256).Hash
-Remove-Item -LiteralPath $probe
-
 $dest = Join-Path $tmp 'model.safetensors'
 
-# --- 1: a matching file is left alone ------------------------------------
-[IO.File]::WriteAllBytes($dest, $script:Payload)
+$payload = [byte[]](1..32)
+$payloadPath = Join-Path $tmp 'payload.bin'
+[IO.File]::WriteAllBytes($payloadPath, $payload)
+$hash = (Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash
+
+# A downloader that copies known bytes, or fails, or truncates.
+function Make-Downloader {
+  param([byte[]]$Bytes, [switch]$Fail, [switch]$Truncate)
+  {
+    param($Url, $Path)
+    if ($Fail) { throw 'simulated download failure' }
+    if ($Truncate) { [IO.File]::WriteAllBytes($Path, $Bytes[0..7]); return }
+    [IO.File]::WriteAllBytes($Path, $Bytes)
+  }.GetNewClosure()
+}
+
+function Install([scriptblock]$dl, [scriptblock]$log = $null) {
+  Install-ModelFile -Destination $dest -Url 'http://example.invalid/m' `
+    -ExpectedBytes $payload.Length -ExpectedSha256 $hash -Downloader $dl -Log $log
+}
+
+# --- 1: missing destination --------------------------------------------
+$r = Install (Make-Downloader -Bytes $payload)
+Check ($r.State -eq 'installed') 'a missing destination is installed'
+Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $hash) 'the installed bytes are the verified ones'
+
+# --- 2: existing verified destination is untouched ----------------------
 $before = (Get-Item -LiteralPath $dest).LastWriteTimeUtc
 Start-Sleep -Milliseconds 20
-[void](Save-UabsModelFileSafely -Destination $dest -Url 'http://x' -ExpectedBytes $script:Payload.Length -ExpectedSha256 $script:PayloadHash)
-Check ((Get-Item -LiteralPath $dest).LastWriteTimeUtc -eq $before) 'a verified file is not rewritten'
-Check (@(Get-ChildItem -LiteralPath $tmp -Filter '*.replaced-*').Count -eq 0) 'no backup is made when the file already matches'
+$r = Install (Make-Downloader -Bytes $payload)
+Check ($r.State -eq 'unchanged') 'a verified destination reports unchanged'
+Check ((Get-Item -LiteralPath $dest).LastWriteTimeUtc -eq $before) 'a verified destination is not rewritten'
 
-# --- 2: a mismatched file is backed up, not destroyed --------------------
-[IO.File]::WriteAllBytes($dest, [byte[]](9..20))   # same length, different bytes
-[void](Save-UabsModelFileSafely -Destination $dest -Url 'http://x' -ExpectedBytes $script:Payload.Length -ExpectedSha256 $script:PayloadHash)
-$backups = @(Get-ChildItem -LiteralPath $tmp -Filter 'model.safetensors.replaced-*')
-Check ($backups.Count -eq 1) 'a mismatched file is kept as a backup'
-Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $script:PayloadHash) 'the verified download is published'
-Check ($backups[0].Length -eq 12) 'the backup holds the original bytes'
+# --- 3: different bytes, same length ------------------------------------
+[IO.File]::WriteAllBytes($dest, [byte[]](9..40))
+$r = Install (Make-Downloader -Bytes $payload)
+Check ($r.State -eq 'installed') 'same-length different bytes is replaced'
+Check (@(Get-ChildItem -LiteralPath $tmp -Filter 'model.safetensors.replaced-*').Count -eq 1) 'the replaced file is backed up'
+Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $hash) 'the replacement is the verified file'
 
-# --- 3: a different-length collision is backed up too --------------------
+# --- 4: different length -------------------------------------------------
 [IO.File]::WriteAllBytes($dest, [byte[]](1..5))
-[void](Save-UabsModelFileSafely -Destination $dest -Url 'http://x' -ExpectedBytes $script:Payload.Length -ExpectedSha256 $script:PayloadHash)
-$backups = @(Get-ChildItem -LiteralPath $tmp -Filter 'model.safetensors.replaced-*')
-Check ($backups.Count -eq 2) 'a different-sized collision also produces a backup'
+$r = Install (Make-Downloader -Bytes $payload)
+Check ($r.State -eq 'installed') 'a different-length collision is replaced'
+Check (@(Get-ChildItem -LiteralPath $tmp -Filter 'model.safetensors.replaced-*').Count -eq 2) 'each replacement keeps its own backup'
 
-# --- 4: a failed download restores the previous file ---------------------
+# --- 5: download failure keeps the previous file -------------------------
 [IO.File]::WriteAllBytes($dest, [byte[]](7..18))
 $original = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash
-$script:FailDownload = $true
-$threw = $false
-try {
-  [void](Save-UabsModelFileSafely -Destination $dest -Url 'http://x' -ExpectedBytes $script:Payload.Length -ExpectedSha256 $script:PayloadHash)
-} catch { $threw = $true }
-$script:FailDownload = $false
-Check $threw 'a failed download throws'
-Check (Test-Path -LiteralPath $dest) 'the previous file is back at the original path'
-Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $original) 'the restored file has the original bytes'
-Check (@(Get-ChildItem -LiteralPath $tmp -Filter '*.part').Count -eq 0) 'no .part file is left behind'
+$r = Install (Make-Downloader -Bytes $payload -Fail)
+Check ($r.State -eq 'failed') 'a download failure reports failed'
+Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $original) 'a download failure leaves the previous file intact'
+Check (@(Get-ChildItem -LiteralPath $tmp -Filter '*.download-*').Count -eq 0) 'a failed download leaves no staging file'
+
+# --- 6: truncated download ----------------------------------------------
+$r = Install (Make-Downloader -Bytes $payload -Truncate)
+Check ($r.State -eq 'failed') 'a truncated download is refused'
+Check ($r.Message -match 'size mismatch') 'a truncated download is refused for the right reason'
+Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $original) 'a truncated download leaves the previous file intact'
+
+# --- 7: invalid checksum -------------------------------------------------
+$r = Install (Make-Downloader -Bytes ([byte[]](2..33)))
+Check ($r.State -eq 'failed') 'a checksum mismatch is refused'
+Check ($r.Message -match 'SHA-256') 'a checksum mismatch is refused for the right reason'
+Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $original) 'a checksum mismatch leaves the previous file intact'
+
+# --- 8: logging failure cannot break the transaction ---------------------
+$r = Install (Make-Downloader -Bytes $payload) { throw 'logger exploded' }
+Check ($r.State -eq 'installed') 'a throwing logger does not fail the install'
+Check ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $hash) 'the file is installed despite the logger'
+
+# --- 9: publication failure rolls back ----------------------------------
+# A directory at the destination path makes the final rename fail, after the
+# backup has already been taken.
+$dest2 = Join-Path $tmp 'blocked.safetensors'
+New-Item -ItemType Directory -Path $dest2 | Out-Null
+$r = Install-ModelFile -Destination $dest2 -Url 'http://x' -ExpectedBytes $payload.Length `
+  -ExpectedSha256 $hash -Downloader (Make-Downloader -Bytes $payload)
+Check ($r.State -eq 'failed') 'a failed publication reports failed'
+Check ((Test-Path -LiteralPath $dest2)) 'a failed publication does not delete the destination'
+Remove-Item -LiteralPath $dest2 -Recurse -Force
+
+# --- 10: an unrelated .part file is never touched ------------------------
+$stray = Join-Path $tmp 'model.safetensors.part'
+[IO.File]::WriteAllBytes($stray, [byte[]](3..6))
+$strayHash = (Get-FileHash -LiteralPath $stray -Algorithm SHA256).Hash
+[void](Install (Make-Downloader -Bytes $payload -Fail))
+Check ((Get-FileHash -LiteralPath $stray -Algorithm SHA256).Hash -eq $strayHash) 'an unrelated .part file is left byte-for-byte alone'
+
+# --- 11: idempotence -----------------------------------------------------
+$r1 = Install (Make-Downloader -Bytes $payload)
+$r2 = Install (Make-Downloader -Bytes $payload)
+Check ($r1.State -eq 'unchanged' -and $r2.State -eq 'unchanged') 'repeated installs are idempotent'
+Check (@(Get-ChildItem -LiteralPath $tmp -Filter '*.download-*').Count -eq 0) 'no staging files remain'
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 if ($fail -eq 0) { Write-Host 'MODEL INSTALL TESTS: PASS'; exit 0 }

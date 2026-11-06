@@ -106,7 +106,9 @@ checks this and refuses rather than writing a broken file:
 A merge that writes a file can still be useless. Two checks, in order:
 
 1. **Self-merge sanity.** Merging the base with itself at weight 1.0 must
-   produce a bit-identical file. If it does, the merge writer is correct.
+   reproduce the base's tensor values, shapes and dtypes. The whole serialized
+   file is *not* byte-identical: header key order, padding and metadata all
+   change, so compare tensors, not SHA-256 of the file.
 2. **Render it.** Generate one image with the merged checkpoint before you build
    a workflow around it:
 
@@ -134,7 +136,10 @@ and DARE, and Task Arithmetic ignores it.
 The ComfyUI node patches a model **in memory while ComfyUI runs** and its save
 node ships bypassed. Nothing lands on disk, so you cannot share, compare or keep
 the result. The CLI writes a real `.safetensors` with the merge settings recorded
-in its metadata (`modelspec.merge`), which makes a merge reproducible later:
+in its metadata (`modelspec.merge`). That record is incomplete on its own: it
+holds the donor filenames, weights, method and scale, but not the donors' hashes,
+so a file with the same name but different contents would reproduce something
+else. Verify the hashes before relying on it.
 
 ```powershell
 python TOOLS\merge_anima.py --base <file> --donor <file> --weights 0.5 --out <file> --dry-run

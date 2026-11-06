@@ -43,7 +43,8 @@ still works:
 1. Put the new SHA in `config/dependencies.lock.json`, with the version, the node
    classes it provides and a note about what was verified.
 2. Update `CHANGELOG.md` and `VERSION`.
-3. Run the fast layer from `docs/TESTING.md`.
+3. Run the fast layer from `docs/TESTING.md`, then `python TOOLSalidate-lock.py`
+   to prove every pin still resolves in its own repository.
 4. Land it through a pull request; `main` does not accept direct pushes.
 
 ## Rolling back
