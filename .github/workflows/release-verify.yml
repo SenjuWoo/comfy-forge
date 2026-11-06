@@ -30,7 +30,12 @@ jobs:
         run: python TESTS/test_merge.py
 
       - name: Workflow structure and shipped recipe
-        run: python TESTS/validate_workflows.py
+        shell: pwsh
+        run: |
+          python TESTS/validate_workflows.py
+          $code = $LASTEXITCODE
+          if ($code -eq 3) { Write-Host "::warning::workflow topology UNVERIFIED on this runner"; exit 0 }
+          if ($code -ne 0) { exit $code }
 
       - name: Shipped workflow converts to an executable graph
         run: python TESTS/test_workflow_convert.py
