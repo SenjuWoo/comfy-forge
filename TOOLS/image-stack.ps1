@@ -52,6 +52,7 @@ param(
   [string]$Method = 'task-arithmetic',
   [switch]$IncludeOptional,
   [switch]$Force,
+  [switch]$AcceptFallbackAnchor,
   [switch]$Write,
   [switch]$NoMirror,
   [string]$Agent = 'hermes',
@@ -60,6 +61,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot          # repo root (this file lives in TOOLS\)
+. (Join-Path $PSScriptRoot 'mirror-lib.ps1')      # hard-link/copy primitives
 $StatePath = Join-Path $env:LOCALAPPDATA 'Ultimate-AI-Starter-Bundle\anima-swarmui.json'
 
 function Say($Message) { Write-Host $Message }
@@ -260,6 +262,43 @@ $NodePacks = @(
      Why  = 'extra samplers/schedulers: beta57, res_2s, rk_beta, bong_tangent' }
 )
 
+function Get-NodePackRequirements([string]$PackName) {
+  # Read the pack's own manifest instead of guessing its dependencies.
+  $dir = Get-ComfyNodeDir
+  if (-not $dir) { return @() }
+  $req = Join-Path $dir (Join-Path $PackName 'requirements.txt')
+  if (-not (Test-Path -LiteralPath $req)) { return @() }
+  return @(Get-Content -LiteralPath $req |
+           Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' } |
+           ForEach-Object { ($_ -split '[<>=!~ ;]')[0].Trim() } |
+           Where-Object { $_ })
+}
+
+function Test-PythonModule([string]$Python, [string]$Dist) {
+  # requirements.txt lists DISTRIBUTION names (opencv-python, pywavelets), whose
+  # import names differ (cv2, pywt), so ask importlib.metadata, not importlib.
+  # A miss prints a traceback; contain it in cmd so EAP=Stop does not abort.
+  $null = & cmd.exe /c "`"$Python`" -c `"import importlib.metadata as m,sys;m.version(sys.argv[1])`" $Dist 2>nul"
+  return ($LASTEXITCODE -eq 0)
+}
+
+function Install-NodePackDeps([string]$Python) {
+  # Installs into the same interpreter the frontend uses, and never touches torch.
+  $fixed = 0
+  foreach ($pack in $NodePacks) {
+    if (-not (Test-NodePack $pack.Name)) { continue }
+    $missing = @(Get-NodePackRequirements $pack.Name |
+                 Where-Object { -not (Test-PythonModule $Python $_) })
+    if ($missing.Count -eq 0) { continue }
+    Note ("installing {0} dependencies: {1}" -f $pack.Name, ($missing -join ', '))
+    $pipArgs = ($missing -join ' ')
+    $null = & cmd.exe /c "`"$Python`" -m pip install --quiet --disable-pip-version-check $pipArgs 2>&1"
+    if ($LASTEXITCODE -eq 0) { Ok ("deps -> {0}" -f ($missing -join ', ')); $fixed++ }
+    else { Write-Host ("warning    pip install failed for {0}" -f $pack.Name) -ForegroundColor Yellow }
+  }
+  return $fixed
+}
+
 function Test-NodePack([string]$Name) {
   $dir = Get-ComfyNodeDir
   if (-not $dir) { return $false }
@@ -340,6 +379,8 @@ function Install-MissingRequirements {
       break
     }
   }
+  $pyForDeps = Find-Python
+  if ($pyForDeps) { $fixed += (Install-NodePackDeps $pyForDeps) }
   $packsAdded = @($NodePacks | Where-Object { -not (Test-NodePack $_.Name) }).Count -eq 0
   if ($packsAdded -and $fixed -gt 0) {
     Note 'restart SwarmUI so it re-reads the sampler/scheduler list from ComfyUI'
@@ -455,25 +496,30 @@ function Invoke-Merge {
   & $python $mergeScript @argv
   $exit = $LASTEXITCODE
 
-  # Exit 3 means the base is a different Anima lineage than the donors (e.g. the
-  # 40-block 2.9B base against 28-block fine-tunes). Those cannot be blended, so
-  # retry with the first donor as the anchor, which is what a same-lineage merge
-  # actually means. An explicit -Base is never overridden.
+  # Exit 3 means the base is a different Anima lineage than the donors. Those
+  # cannot be blended, and there is no verified ancestor to use instead.
+  #
+  # The only honest fallback is to treat one donor as the computational anchor
+  # and KEEP IT IN THE DONOR LIST with its original weight: its task vector is
+  # then zero, but its weight still counts in the denominator, so at scale 1 the
+  # blend is exactly sum(w_i*D_i)/sum(w_i) - the recipe the caller asked for.
+  # Dropping the anchor and renormalising over the rest silently rewrites the
+  # recipe (31.5/27.8/22.2/18.5 becomes 0/40.5/32.4/27.0), so it is opt-in.
   if ($exit -eq 3 -and -not $explicitBase) {
-    $rest = @($DonorPaths | Select-Object -Skip 1)
-    if ($rest.Count -lt 1) { Fail 'the donors do not share a lineage with the base, and there is no second donor to anchor on' }
-    $w = $null
-    if ($Weights) {
-      $vals = @($Weights -split ',' | ForEach-Object { $_.Trim() })
-      if ($vals.Count -eq ($rest.Count + 1)) { $w = ($vals[1..($vals.Count - 1)] -join ',') }
-      elseif ($vals.Count -eq $rest.Count) { $w = ($vals -join ',') }
+    if (-not $AcceptFallbackAnchor) {
+      $msg = ("the base {0} is a different Anima lineage from the donors, so they cannot be blended. " +
+              "Pass -Base with a checkpoint from the donors' lineage, or -AcceptFallbackAnchor to anchor " +
+              "on {1} while keeping all {2} donors and their weights.") -f `
+              (Split-Path -Leaf $Base), (Split-Path -Leaf $DonorPaths[0]), $DonorPaths.Count
+      Fail $msg
     }
     $Base = $DonorPaths[0]
     Say ''
-    Note ("anchoring on {0} instead (same lineage as the other donors)" -f (Split-Path -Leaf $Base))
+    Note ("anchoring on {0}: a different lineage from the requested base, so it becomes both the anchor and donor #1" -f (Split-Path -Leaf $Base))
+    Note 'all donors keep their original weights; the anchor contributes a zero task vector rather than being removed'
     $argv = @('--base', $Base, '--out', $Out, '--method', $Method, '--scale', $Scale)
-    foreach ($d in $rest) { $argv += @('--donor', $d) }
-    if ($w) { $argv += @('--weights', $w) }
+    foreach ($d in $DonorPaths) { $argv += @('--donor', $d) }
+    if ($Weights) { $argv += @('--weights', $Weights) }
     if ($Force) { $argv += '--force' }
     & $python $mergeScript @argv
     $exit = $LASTEXITCODE
@@ -485,23 +531,12 @@ function Invoke-Merge {
   if (-not $NoMirror) {
     $comfyDir = Get-ComfyModelDir
     if ($comfyDir) {
-      $mirror = Join-Path $comfyDir (Split-Path -Leaf $Out)
-      try {
-        if (Test-Path -LiteralPath $mirror) { Remove-Item -LiteralPath $mirror -Force }
-        # cmd's mklink is used rather than New-Item -ItemType HardLink: the PS
-        # cmdlet has been seen to report success while producing a separate copy.
-        $null = & cmd.exe /c "mklink /H `"$mirror`" `"$Out`"" 2>&1
-        # Verify instead of trusting the exit code: fsutil lists every path that
-        # shares the file ID, so both names must appear.
-        $links = (& cmd.exe /c "fsutil hardlink list `"$mirror`"" 2>$null) -join ' '
-        if (-not ($links -match [regex]::Escape((Split-Path -Leaf $Out)))) {
-          throw 'hard link did not take'
-        }
-        Ok "linked into ComfyUI: $mirror"
-      }
-      catch {
-        Copy-Item -LiteralPath $Out -Destination $mirror -Force
-        Ok "copied into ComfyUI: $mirror"
+      $r = Set-ModelMirror -Source $Out -DestinationDirectory $comfyDir
+      switch ($r.Kind) {
+        'linked'    { Ok ("ComfyUI: " + $r.Message) }
+        'in-place'  { Note ("ComfyUI: " + $r.Message) }
+        'copied'    { Ok ("ComfyUI: " + $r.Message) }
+        default     { Write-Host ("warning    ComfyUI: " + $r.Message) -ForegroundColor Yellow }
       }
     }
   }
@@ -525,10 +560,11 @@ function Show-Mcp {
     mcpServers = [ordered]@{
       'comfyui' = [ordered]@{
         command = 'npx'
-        args    = @('-y', 'comfyui-mcp@0.52.206')
+        # --comfyui-url is what the server actually honours; COMFYUI_HOST/PORT
+        # are ignored and it falls back to 8188, which is rarely where SwarmUI's
+        # backend lives. COMFYUI_URL alone was also ignored on 0.52.206.
+        args    = @('-y', 'comfyui-mcp@0.52.206', '--comfyui-url', "http://127.0.0.1:$cp")
         env     = [ordered]@{
-          COMFYUI_HOST       = '127.0.0.1'
-          COMFYUI_PORT       = "$cp"
           COMFYUI_MCP_TOOL_MODE = 'compact'
         }
       }

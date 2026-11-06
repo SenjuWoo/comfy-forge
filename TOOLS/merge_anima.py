@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import re
 import json
+import math
 import os
 import struct
 import sys
@@ -192,6 +193,10 @@ def main(argv=None):
                      f"{len(args.donor)} donors")
     else:
         weights = [1.0] * len(args.donor)
+    if not math.isfinite(args.scale):
+        sys.exit("--scale must be a finite number")
+    if any(not math.isfinite(w) for w in weights):
+        sys.exit("donor weights must all be finite")
     if sum(weights) <= 0:
         sys.exit("donor weights must add up to more than zero")
 
@@ -251,6 +256,15 @@ def main(argv=None):
     for path, w in zip(args.donor, weights):
         print(f"donor     {os.path.basename(path)}  weight {w:g}")
     print(f"method    {args.method}  scale {args.scale:g}  dtype {args.dtype or 'same as base'}")
+    anchor_donor = next((i for i, d in enumerate(args.donor)
+                         if os.path.normcase(os.path.abspath(d)) ==
+                         os.path.normcase(os.path.abspath(args.base))), None)
+    if anchor_donor is not None:
+        print(f"anchor    donor #{anchor_donor + 1} also serves as the base: its task vector is "
+              f"zero, but its weight still counts in the denominator")
+    total_w = sum(weights)
+    for i, (path, w) in enumerate(zip(args.donor, weights)):
+        print(f"share     {w / total_w * 100:6.2f}%  {os.path.basename(path)}")
 
     if merged == 0:
         sys.exit("nothing to merge: every tensor is protected or missing from a donor")
@@ -291,8 +305,17 @@ def main(argv=None):
         "adapter_protected": not args.no_protect_adapter,
     }, sort_keys=True)
 
-    digest, total_bytes = write_checkpoint(args.out, keys, shapes, dtypes,
-                                           producer, meta)
+    try:
+        digest, total_bytes = write_checkpoint(args.out, keys, shapes, dtypes,
+                                               producer, meta)
+    except BaseException:
+        # A half-written file must never be left behind pretending to be a model.
+        part = args.out + ".part"
+        if os.path.exists(part):
+            os.unlink(part)
+        raise
+
+    # Trust the file, not the writer: re-read it and compare the inventory.
     check_header, _ = read_header(args.out)
     if len(check_header) != len(keys):
         sys.exit(f"write verification failed: {len(check_header)} tensors on disk, "

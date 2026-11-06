@@ -36,7 +36,7 @@ powershell -File TOOLS\image-stack.ps1 generate -Prompt "a neon alley at night, 
 powershell -File TOOLS\image-stack.ps1 merge -Donors "<a>","<b>","<c>","<d>" -Weights 0.85,0.75,0.6,0.5
 ```
 
-Every command is idempotent. `install` downloads only what is missing and
+`install` is safe to re-run: it downloads only what is missing and
 verifies each file by SHA-256, so re-running is cheap and safe.
 
 ## Commands
@@ -133,7 +133,8 @@ that ships inside ComfyUI, so nothing is installed globally.
 
 ## Verified, and not
 
-Run on an RTX 4080 SUPER with SwarmUI v0.9.8.4:
+Tested on Windows 11 with SwarmUI v0.9.8.4 (its bundled ComfyUI), RTX 4080 SUPER,
+Python 3.12 embedded. Version: see `VERSION` (single source of truth).
 
 | Check | Result |
 |---|---|
@@ -165,7 +166,7 @@ built against SwarmUI, which drives its own ComfyUI backend).
 TOOLS/image-stack.ps1            the CLI
 TOOLS/merge_anima.py             the merge engine
 TOOLS/Ensure-AnimaSwarmUI.ps1    model download and verification
-presets/                         39 presets, hash-pinned manifest
+presets/                         42 presets, hash-pinned manifest
 workflows/                       ComfyUI 4-way merge graph
 docs/                            MERGE.md, banner, sample render
 TESTS/                           merge math, installer gate, PS parse, MCP handshake

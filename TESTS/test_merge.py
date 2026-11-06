@@ -20,9 +20,10 @@ import merge_anima  # noqa: E402
 FAIL = 0
 
 
-def close(t, want):
-    """bf16 keeps ~3 significant digits, so compare within bf16 resolution."""
-    return torch.allclose(t.float(), want, atol=0.02)
+def close(t, want, atol=0.02):
+    """bf16 keeps ~3 significant digits, so compare within bf16 resolution.
+    Float32 fixtures can tighten atol to prove exact arithmetic."""
+    return torch.allclose(t.float(), want, atol=atol)
 
 
 def check(condition, name):
@@ -160,6 +161,56 @@ def main():
         check(False, "weight count must match donors")
     except SystemExit:
         check(True, "weight count must match donors")
+
+    # --- four-donor recipe: the anchor must stay in the denominator ----------
+    # Classic topology fallback anchors on donor #1. If that anchor is dropped
+    # from the donor list and the weights renormalised over the rest, the blend
+    # silently becomes 0/40.5/32.4/27.0 instead of 31.5/27.8/22.2/18.5.
+    # Values: A=0 B=1 C=2 D=4, weights .85/.75/.60/.50 (sum 2.70).
+    quad = {}
+    for name, val in (("A", 0.0), ("B", 1.0), ("C", 2.0), ("D", 4.0)):
+        quad[name] = os.path.join(tmp, f"quad-{name}.safetensors")
+        save_file({"net.blocks.0.w": torch.full((2, 2), val, dtype=torch.float32)}, quad[name])
+    qw = "0.85,0.75,0.60,0.50"
+    qout = os.path.join(tmp, "quad-out.safetensors")
+    rc = merge_anima.main(["--base", quad["A"],
+                           "--donor", quad["A"], "--donor", quad["B"],
+                           "--donor", quad["C"], "--donor", quad["D"],
+                           "--weights", qw, "--scale", "1.0", "--out", qout])
+    check(rc == 0, "four-donor merge with an anchor donor runs")
+    got = load_file(qout)["net.blocks.0.w"].float()
+    want = (0 * .85 + 1 * .75 + 2 * .60 + 4 * .50) / 2.70      # 1.46296
+    dropped = (1 * .75 + 2 * .60 + 4 * .50) / 1.85             # 2.13243 = the bug
+    check(close(got, torch.full((2, 2), want), atol=1e-4),
+          f"anchor keeps its weight in the denominator (want {want:.5f})")
+    check(not close(got, torch.full((2, 2), dropped), atol=1e-4),
+          "anchor is not silently dropped from the recipe")
+
+    # scale 0 must return the base untouched; scale 2 extrapolates.
+    for sc, expect in (("0", 0.0), ("0.5", want / 2), ("2", want * 2)):
+        o = os.path.join(tmp, f"quad-s{sc}.safetensors")
+        merge_anima.main(["--base", quad["A"],
+                          "--donor", quad["A"], "--donor", quad["B"],
+                          "--donor", quad["C"], "--donor", quad["D"],
+                          "--weights", qw, "--scale", sc, "--out", o])
+        check(close(load_file(o)["net.blocks.0.w"].float(),
+                    torch.full((2, 2), expect), atol=1e-4),
+              f"scale {sc} follows the task-arithmetic formula")
+
+    # Non-finite input must be refused, not written.
+    try:
+        merge_anima.main(["--base", quad["A"], "--donor", quad["B"],
+                          "--weights", "nan", "--out", os.path.join(tmp, "nan.safetensors")])
+        check(False, "NaN weight is refused")
+    except SystemExit:
+        check(True, "NaN weight is refused")
+    try:
+        merge_anima.main(["--base", quad["A"], "--donor", quad["B"], "--donor", quad["C"],
+                          "--weights", "0,0", "--out", os.path.join(tmp, "zero.safetensors")])
+        check(False, "zero total weight is refused")
+    except SystemExit:
+        check(True, "zero total weight is refused")
+
 
     print("MERGE MATH: " + ("PASS" if FAIL == 0 else f"{FAIL} FAILED"))
     return 1 if FAIL else 0
