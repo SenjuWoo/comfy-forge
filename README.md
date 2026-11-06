@@ -117,8 +117,6 @@ as well as `UNETLoader`.
 Full reference — weights, scale, methods, compatibility rules and how to check a
 merge: **[docs/MERGE.md](docs/MERGE.md)**.
 
-`civitai/` holds a worked publish package (model description, version notes,
-hashes, donor table, samples) as a template for releasing a merged checkpoint.
 
 ## Requirements
 
