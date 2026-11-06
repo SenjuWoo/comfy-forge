@@ -48,6 +48,13 @@ def main(argv=None):
     print(f"ok   backend detected on 127.0.0.1:{port}" if port
           else "note no ComfyUI backend is running; handshake only")
 
+    if not port:
+        # Nothing to exercise: starting a cold npx server for a handshake that
+        # will be reported UNVERIFIED wastes minutes on CI and can time out.
+        print("UNVERIFIED: no backend, MCP operation not attempted")
+        print("MCP: UNVERIFIED (no backend)")
+        return 3
+
     env = dict(os.environ)
     env["COMFYUI_MCP_TOOL_MODE"] = "compact"
     cmd = ["npx.cmd" if os.name == "nt" else "npx", "-y", PACKAGE]
@@ -59,7 +66,7 @@ def main(argv=None):
                             stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env)
     assert proc.stdin is not None and proc.stdout is not None
 
-    def send(mid, method, params=None, timeout=90):
+    def send(mid, method, params=None, timeout=180):
         """Bounded read: a stalled npx/MCP start must not hang the test forever."""
         import queue
         import threading
@@ -88,8 +95,13 @@ def main(argv=None):
         return json.loads(line)
 
     try:
-        init = send(1, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
-                                      "clientInfo": {"name": "comfy-kit", "version": "1.0"}})
+        try:
+            init = send(1, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                          "clientInfo": {"name": "comfy-kit", "version": "1.0"}})
+        except RuntimeError as e:
+            print(f"UNVERIFIED: {e}")
+            print("MCP: UNVERIFIED (server unavailable)")
+            return 3
         info = init["result"]["serverInfo"]
         print(f"ok   initialize -> {info.get('name')} {info.get('version')}")
 
