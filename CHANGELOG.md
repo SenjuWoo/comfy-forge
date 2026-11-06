@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.3 - cleanup covers the render preview
+
+The merge test removed its checkpoint and the model link, but left the 0.35 MB
+preview PNG that SaveImage writes into output/ - one file per run, forever. It is
+now registered with the rest and removed unless --keep-artifacts is set.
+
 ## v0.5.2 - maintenance
 
 Follow-up to 0.5.1. No behaviour changes for a normal run.
