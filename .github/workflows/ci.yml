@@ -39,15 +39,25 @@ jobs:
         run: ./TESTS/Test-Mirror.ps1
 
       - name: Workflow structure and lineage
-        run: python TESTS/validate_workflows.py
-
-      - name: Version file present
         shell: pwsh
         run: |
-          if (-not (Test-Path VERSION)) { throw 'VERSION file missing' }
-          Get-Content VERSION
+          python TESTS/validate_workflows.py
+          $code = $LASTEXITCODE
+          if ($code -eq 3) { Write-Host "::warning::workflow topology UNVERIFIED on this runner"; exit 0 }
+          if ($code -ne 0) { exit $code }
 
-      - name: MCP handshake
-        run: python TESTS/test_mcp_handshake.py
-        timeout-minutes: 4        # npx downloads the server; never hang the job
-        continue-on-error: true   # needs npm registry access; not a code failure
+      - name: Workflow lineage gate self-test (synthetic)
+        run: python TESTS/validate_workflows.py --self-test
+
+      - name: Version consistency
+        shell: pwsh
+        run: ./TESTS/Test-Version.ps1
+
+      - name: MCP integration
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          python TESTS/test_mcp_handshake.py
+          $code = $LASTEXITCODE
+          if ($code -eq 3) { Write-Host "::warning::MCP real operation UNVERIFIED (no backend)"; exit 0 }
+          if ($code -ne 0) { exit $code }

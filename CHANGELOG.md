@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.5.0-rc.2 - second candidate
+
+### Fixed
+
+- **Integer and bool tensors crashed the writer** (`KeyError: I64`); full
+  checkpoints carry step counters and masks. The dtype table now covers every
+  safetensors dtype, non-float tensors are copied from the base verbatim, and
+  they are reported separately instead of counted as "skipped".
+- **An output path equal to an input checkpoint** is refused, with or without
+  `--force`.
+- **Inherited identity metadata** (`author`, `license`, `license_url`, `date`)
+  is dropped like `workflow`, `prompt` and `hash_sha256` already were.
+- **Dependency constraints were dropped** (`numpy>=1.26.4` became `numpy`) and
+  pip was invoked through a concatenated shell string. Requirements now travel as
+  argv with their constraints, torch is never replaced, and an unsatisfied
+  requirement fails the install instead of printing a warning.
+- **Standalone ComfyUI could not receive node packs**: `Get-ComfyNodeDir`
+  required SwarmUI. It now resolves standalone roots (env, portable, venv).
+
+### Changed
+
+- Workflow and MCP validation return **UNVERIFIED (exit 3)** instead of PASS when
+  they cannot verify; CI turns that into a warning, never a silent pass.
+- The workflow validator no longer hardcodes one machine: paths come from
+  `COMFYUI_MODEL_DIRS` / `COMFYUI_ROOT`, and `--self-test` proves the lineage gate
+  with synthetic 40-block and 28-block headers.
+- Mirror backups are GUID-suffixed, copies are verified by SHA-256, and a failed
+  replacement restores the file it displaced.
+- `TESTS/Test-Version.ps1` fails when VERSION, CHANGELOG and STATE disagree.
+
+## v0.5.0-rc.1 - release candidate
+
+### Fixed
+
+- **Four-way merges silently used three donors.** A fallback that anchored on
+  donor #1 also removed it from the donor list, so weights renormalised over the
+  rest: 31.48/27.78/22.22/18.52 became 0/40.54/32.43/27.03. The anchor now keeps
+  its weight (zero task vector) and the fallback is opt-in.
+- **The mirror could delete the file it was mirroring** and verified links by
+  name. It now compares volume serial + file id, detects in-place targets, sets
+  collisions aside and verifies copies.
+- **Node-pack dependencies were never installed.** Requirements are read from each
+  pack's manifest and installed into the frontend's own interpreter.
+- **MCP config pointed at 8188.** `comfyui-mcp` ignores `COMFYUI_HOST`/`PORT`;
+  `--comfyui-url` is what it honours.
+- **The shipped workflow paired a 40-block base with 28-block donors.**
+
 ## v0.4.2 — keep the kit generic
 
 A model-release package (`civitai/`) was committed here for a personal

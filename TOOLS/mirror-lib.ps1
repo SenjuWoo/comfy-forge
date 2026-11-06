@@ -23,10 +23,19 @@ function Test-SameFile([string]$A, [string]$B) {
   return ($ia -eq $ib)
 }
 
+function Get-FileHash256([string]$Path) {
+  (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+}
+
 function Copy-FileVerified([string]$Source, [string]$Destination) {
   # Stage then move, so a failed copy never leaves a truncated file in place.
-  $staging = "$Destination.staging"
+  # Verified by SHA-256, not length: equal sizes say nothing about equal bytes.
+  $staging = "$Destination.staging-" + [guid]::NewGuid().ToString('N').Substring(0, 8)
   Copy-Item -LiteralPath $Source -Destination $staging -Force
+  if ((Get-FileHash256 $staging) -ne (Get-FileHash256 $Source)) {
+    Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+    throw 'copy checksum mismatch'
+  }
   Move-Item -LiteralPath $staging -Destination $Destination -Force
 }
 
@@ -47,10 +56,12 @@ function Set-ModelMirror {
   if ((Test-Path -LiteralPath $dst) -and (Test-SameFile $src $dst)) {
     return @{ Kind = 'linked'; Message = 'already the same file; nothing to do' }
   }
+  $aside = $null
   $asideName = $null
   if (Test-Path -LiteralPath $dst) {
     # Never destroy a checkpoint we did not create: set it aside, then continue.
-    $aside = "$dst.replaced-" + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    # GUID suffix so two replacements in one second cannot overwrite each other.
+    $aside = "$dst.replaced-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6)
     Move-Item -LiteralPath $dst -Destination $aside -Force
     $asideName = Split-Path -Leaf $aside
   }
@@ -61,10 +72,18 @@ function Set-ModelMirror {
   }
   # Not the same file id: different volume, or the link did not take.
   if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Force }
-  Copy-FileVerified $src $dst
-  if ((Get-Item -LiteralPath $dst).Length -ne (Get-Item -LiteralPath $src).Length) {
-    Remove-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue
-    return @{ Kind = 'error'; Message = 'copy verification failed; destination removed' }
+  try {
+    Copy-FileVerified $src $dst
   }
-  return @{ Kind = 'copied'; Message = 'copied (link not possible across volumes)' }
+  catch {
+    if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue }
+    # Put back the file we displaced: a failed mirror must not cost the user a
+    # checkpoint that was already there.
+    if ($aside -and (Test-Path -LiteralPath $aside)) {
+      Move-Item -LiteralPath $aside -Destination $dst -Force
+      return @{ Kind = 'error'; Message = 'copy failed; previous file restored' }
+    }
+    return @{ Kind = 'error'; Message = 'copy failed; destination removed' }
+  }
+  return @{ Kind = 'copied'; Message = 'copied and verified by SHA-256 (different volume)' }
 }

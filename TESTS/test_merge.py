@@ -212,6 +212,37 @@ def main():
         check(True, "zero total weight is refused")
 
 
+    # --- an input checkpoint is never a valid output ------------------------
+    try:
+        merge_anima.main(["--base", quad["A"], "--donor", quad["B"],
+                          "--out", quad["A"], "--force"])
+        check(False, "refuses to overwrite an input checkpoint (even with --force)")
+    except SystemExit:
+        check(True, "refuses to overwrite an input checkpoint (even with --force)")
+
+    # --- integer / bool tensors are preserved, never blended ----------------
+    ib = {"net.blocks.0.w": torch.zeros(2, 2, dtype=torch.bfloat16),
+          "net.blocks.0.steps": torch.tensor([7, 9], dtype=torch.int64),
+          "net.blocks.0.mask": torch.tensor([True, False])}
+    ib_donor = {"net.blocks.0.w": torch.ones(2, 2, dtype=torch.bfloat16),
+                "net.blocks.0.steps": torch.tensor([1, 1], dtype=torch.int64),
+                "net.blocks.0.mask": torch.tensor([False, True])}
+    ibp, ibdp, ibo = (os.path.join(tmp, f"ib{x}.safetensors") for x in ("-b", "-d", "-o"))
+    save_file(ib, ibp, metadata={"modelspec.author": "someone", "modelspec.license": "NC"})
+    save_file(ib_donor, ibdp)
+    merge_anima.main(["--base", ibp, "--donor", ibdp, "--weights", "1.0", "--out", ibo])
+    got = load_file(ibo)
+    check(got["net.blocks.0.steps"].dtype == torch.int64, "int tensor keeps its dtype")
+    check(torch.equal(got["net.blocks.0.steps"], ib["net.blocks.0.steps"]),
+          "int tensor is copied from the base, not blended")
+    check(got["net.blocks.0.mask"].dtype == torch.bool, "bool tensor keeps its dtype")
+    check(torch.equal(got["net.blocks.0.mask"], ib["net.blocks.0.mask"]),
+          "bool tensor is copied from the base")
+    meta = read_meta(ibo)
+    check("modelspec.author" not in meta and "modelspec.license" not in meta,
+          "inherited author/license metadata is dropped")
+
+
     print("MERGE MATH: " + ("PASS" if FAIL == 0 else f"{FAIL} FAILED"))
     return 1 if FAIL else 0
 

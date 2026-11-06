@@ -105,6 +105,19 @@ function Get-ComfyRoot {
   $comfy = Get-Frontends | Where-Object { $_.kind -eq 'ComfyUI' } | Select-Object -First 1
   if ($comfy) { return $comfy.root }
   if ($env:COMFYUI_ROOT -and (Test-Path -LiteralPath $env:COMFYUI_ROOT)) { return $env:COMFYUI_ROOT }
+  # Standalone installs (portable, venv or plain checkout) are not in the state
+  # file, so look in the usual places before giving up.
+  $candidates = @(
+    (Join-Path $HOME 'ComfyUI'),
+    (Join-Path $HOME 'Documents\ComfyUI'),
+    'C:\ComfyUI',
+    'C:\ComfyUI_windows_portable\ComfyUI',
+    'S:\Misc\ComfyUI',
+    'D:\ComfyUI'
+  )
+  foreach ($c in $candidates) {
+    if (Test-Frontend -Kind 'ComfyUI' -Root $c) { return $c }
+  }
   return $null
 }
 
@@ -242,10 +255,17 @@ function Get-ComfyModelDir {
 
 function Get-ComfyNodeDir {
   $swarm = Get-SwarmRoot
-  if (-not $swarm) { return $null }
-  foreach ($p in @((Join-Path $swarm 'dlbackend\comfy\ComfyUI\custom_nodes'),
-                   (Join-Path $swarm 'Extensions'))) {
-    if (Test-Path -LiteralPath $p) { return $p }
+  if ($swarm) {
+    foreach ($p in @((Join-Path $swarm 'dlbackend\comfy\ComfyUI\custom_nodes'),
+                     (Join-Path $swarm 'Extensions'))) {
+      if (Test-Path -LiteralPath $p) { return $p }
+    }
+  }
+  # Standalone ComfyUI: custom_nodes sits directly under its root.
+  $comfy = Get-ComfyRoot
+  if ($comfy) {
+    $nodes = Join-Path $comfy 'custom_nodes'
+    if (Test-Path -LiteralPath $nodes) { return $nodes }
   }
   return $null
 }
@@ -263,40 +283,75 @@ $NodePacks = @(
 )
 
 function Get-NodePackRequirements([string]$PackName) {
-  # Read the pack's own manifest instead of guessing its dependencies.
+  # Returns pip requirement lines verbatim ("numpy>=1.26.4"), never bare names:
+  # dropping the constraint turns a version check into a presence check.
   $dir = Get-ComfyNodeDir
   if (-not $dir) { return @() }
   $req = Join-Path $dir (Join-Path $PackName 'requirements.txt')
   if (-not (Test-Path -LiteralPath $req)) { return @() }
   return @(Get-Content -LiteralPath $req |
-           Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' } |
-           ForEach-Object { ($_ -split '[<>=!~ ;]')[0].Trim() } |
-           Where-Object { $_ })
+           ForEach-Object { $_.Trim() } |
+           Where-Object { $_ -and -not $_.StartsWith('#') -and $_ -notmatch '^(-e|--|git\+)' })
 }
 
-function Test-PythonModule([string]$Python, [string]$Dist) {
-  # requirements.txt lists DISTRIBUTION names (opencv-python, pywavelets), whose
-  # import names differ (cv2, pywt), so ask importlib.metadata, not importlib.
-  # A miss prints a traceback; contain it in cmd so EAP=Stop does not abort.
-  $null = & cmd.exe /c "`"$Python`" -c `"import importlib.metadata as m,sys;m.version(sys.argv[1])`" $Dist 2>nul"
+function Get-RequirementName([string]$Req) {
+  ($Req -split '[<>=!~;\[ ]')[0].Trim()
+}
+
+function Test-PythonRequirement([string]$Python, [string]$Req) {
+  # Let pip decide: --dry-run --no-index resolves the spec against what is
+  # installed without touching the network, so "numpy>=1.26.4" is honoured.
+  $out = & $Python -m pip install --dry-run --no-index --no-deps --quiet --disable-pip-version-check $Req 2>&1
+  if ($LASTEXITCODE -eq 0) { return $true }
+  $text = ($out | Out-String)
+  if ($text -match 'no matching distribution|Could not find a version') { return $false }
+  # Older pip has no --dry-run: fall back to presence + import.
+  $name = Get-RequirementName $Req
+  $null = & cmd.exe /c "`"$Python`" -c `"import importlib.metadata as m,sys;m.version(sys.argv[1])`" $name 2>nul"
   return ($LASTEXITCODE -eq 0)
 }
 
 function Install-NodePackDeps([string]$Python) {
-  # Installs into the same interpreter the frontend uses, and never touches torch.
-  $fixed = 0
+  # Installs every requirement through argv (never a shell string) into the
+  # frontend's own interpreter. torch is never touched: replacing a working CUDA
+  # build is worse than a missing optional dependency.
+  $failed = 0
   foreach ($pack in $NodePacks) {
     if (-not (Test-NodePack $pack.Name)) { continue }
-    $missing = @(Get-NodePackRequirements $pack.Name |
-                 Where-Object { -not (Test-PythonModule $Python $_) })
+    $reqs = @(Get-NodePackRequirements $pack.Name)
+    if ($reqs.Count -eq 0) { continue }
+    $missing = @($reqs | Where-Object { -not (Test-PythonRequirement $Python $_) })
     if ($missing.Count -eq 0) { continue }
-    Note ("installing {0} dependencies: {1}" -f $pack.Name, ($missing -join ', '))
-    $pipArgs = ($missing -join ' ')
-    $null = & cmd.exe /c "`"$Python`" -m pip install --quiet --disable-pip-version-check $pipArgs 2>&1"
-    if ($LASTEXITCODE -eq 0) { Ok ("deps -> {0}" -f ($missing -join ', ')); $fixed++ }
-    else { Write-Host ("warning    pip install failed for {0}" -f $pack.Name) -ForegroundColor Yellow }
+
+    $safe = @()
+    foreach ($r in $missing) {
+      $name = (Get-RequirementName $r).ToLower()
+      if ($name -in @('torch', 'torchvision', 'torchaudio', 'xformers')) {
+        Write-Host ("warning    {0} asks for {1}; keeping the installed CUDA build" -f $pack.Name, $r) -ForegroundColor Yellow
+        continue
+      }
+      $safe += $r
+    }
+    if ($safe.Count -eq 0) { continue }
+
+    Note ("installing {0} dependencies: {1}" -f $pack.Name, ($safe -join ', '))
+    $argv = @('-m', 'pip', 'install', '--quiet', '--disable-pip-version-check') + $safe
+    & $Python @argv
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host ("error      pip failed for {0}" -f $pack.Name) -ForegroundColor Red
+      $failed++
+      continue
+    }
+    # Verify by re-checking the constraint, then by importing where we can.
+    $still = @($safe | Where-Object { -not (Test-PythonRequirement $Python $_) })
+    if ($still.Count -gt 0) {
+      Write-Host ("error      still unsatisfied after install: {0}" -f ($still -join ', ')) -ForegroundColor Red
+      $failed++
+    } else {
+      Ok ("deps -> {0}" -f ($safe -join ', '))
+    }
   }
-  return $fixed
+  return $failed
 }
 
 function Test-NodePack([string]$Name) {
@@ -380,7 +435,8 @@ function Install-MissingRequirements {
     }
   }
   $pyForDeps = Find-Python
-  if ($pyForDeps) { $fixed += (Install-NodePackDeps $pyForDeps) }
+  $depFailures = 0
+  if ($pyForDeps) { $depFailures = Install-NodePackDeps $pyForDeps }
   $packsAdded = @($NodePacks | Where-Object { -not (Test-NodePack $_.Name) }).Count -eq 0
   if ($packsAdded -and $fixed -gt 0) {
     Note 'restart SwarmUI so it re-reads the sampler/scheduler list from ComfyUI'
@@ -391,6 +447,11 @@ function Install-MissingRequirements {
   }
 
   if ($fixed -eq 0) { Ok 'nothing to install' } else { Ok "$fixed component(s) installed" }
+  if ($depFailures -gt 0) {
+    # A node pack that cannot import is not an installed node pack.
+    Write-Host ("error      {0} node-pack dependency set(s) failed" -f $depFailures) -ForegroundColor Red
+    exit 1
+  }
 }
 
 function Invoke-Install {

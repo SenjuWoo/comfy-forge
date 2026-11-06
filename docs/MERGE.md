@@ -71,9 +71,9 @@ checks this and refuses rather than writing a broken file:
   file loads, the sampler runs, and the PNG is pure black with no error. Verified
   both ways on real files.
 
-  `merge_anima.py` counts the blocks and stops. The CLI then anchors on the first
-  donor (dropping that donor's weight), which is the merge those files can
-  actually support:
+  `merge_anima.py` counts the blocks and stops. With `-AcceptFallbackAnchor` the
+  CLI anchors on the first donor and keeps it in the donor list with its weight
+  (zero task vector), which is the merge those files can actually support:
 
   ```
   base      Versetility - Diving-Anima_v9.0.safetensors  (685 tensors)
