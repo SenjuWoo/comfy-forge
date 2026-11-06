@@ -63,6 +63,18 @@ python TESTS	est_mcp_handshake.py --workflow
 
 That enqueues through the MCP tool and waits for the job to produce an image.
 
+## The four-way merge graph (live, slow)
+
+```powershell
+& "S:\Misc\SwarmUI\dlbackend\comfy\python_embeded\python.exe" TESTS\integration_merge_graph.py --url http://127.0.0.1:7821
+```
+
+Builds the graph from the live node schemas, runs `HaDeSAnimaMultiModelMerger`,
+saves with `HaDeSAnimaModelSaver`, reloads the saved file through `UNETLoader`
+and renders. It loads five models and can take several minutes; `--dry-run`
+checks the graph against `/object_info` without running it. This is the only
+check that proves the shipped merge path end to end, and CI cannot run it.
+
 ## Node-pack dependency checks
 
 ```powershell

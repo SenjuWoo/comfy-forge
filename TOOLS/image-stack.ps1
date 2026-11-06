@@ -297,24 +297,28 @@ function Get-ComfyNodeDir {
 # Custom node packs this kit relies on. RES4LYF is what puts beta57 / res_2s /
 # rk_beta into ComfyUI's scheduler list, which SwarmUI then merges into its own
 # Scheduler dropdown on startup (ComfyUIBackendExtension.AssignValuesFromRaw).
-$NodePacks = @(
-  @{ Name = 'hades-anima-suite'
-     Url  = 'https://github.com/Devildonia/HaDeS-Anima-Suite.git'
-     Why  = 'HaDeS Anima nodes: 4-way merge graph, anima_beta57 scheduler' },
-  @{ Name = 'RES4LYF'
-     Url  = 'https://github.com/ClownsharkBatwing/RES4LYF.git'
-     Why  = 'extra samplers/schedulers: beta57, res_2s, rk_beta, bong_tangent' }
-)
+function Get-NodePacks {
+  # The lock is the only list. A second hardcoded copy drifts silently, and a
+  # missing lock must not degrade into "install whatever main has today".
+  $lock = Get-DependencyLock
+  if (-not $lock) { return @() }
+  return @($lock.node_packs | ForEach-Object {
+    @{ Name = $_.name; Url = $_.url; Sha = $_.sha
+       Why = (@($_.provides) -join ', ') }
+  })
+}
 
 function Get-PackDependencyReport([string]$Python, [string]$NodeDir) {
   # One resolver reads requirements.txt AND pyproject.toml (HaDeS ships only the
   # latter, which the old requirements.txt-only parser never saw). Native stderr
   # is captured without EAP=Stop turning an expected pip message into a crash.
   $script = Join-Path $Root 'TOOLS\check_deps.py'
-  $packs = @($NodePacks | ForEach-Object { Join-Path $NodeDir $_.Name } |
+  $packs = @(@(Get-NodePacks) | ForEach-Object { Join-Path $NodeDir $_.Name } |
              Where-Object { Test-Path -LiteralPath $_ })
   if ($packs.Count -eq 0) { return @() }
-  $argv = @($script)
+  # --report-only: the installer installs what is missing, so a nonzero
+  # "requirements unmet" exit would be misread as a resolver failure.
+  $argv = @($script, '--report-only')
   foreach ($p in $packs) { $argv += @('--pack', $p) }
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
@@ -417,39 +421,53 @@ function Get-DependencyLock {
   catch { Write-Host 'warning    config\dependencies.lock.json is not valid JSON' -ForegroundColor Yellow; return $null }
 }
 
+function Get-OriginSlug([string]$Url) {
+  # git@github.com:o/r.git, https://github.com/o/r, https://github.com/o/r.git
+  # and a trailing slash all name the same repository.
+  if (-not $Url) { return $null }
+  $u = $Url.Trim()
+  if ($u -match '^git@([^:]+):(.+?)(?:\.git)?/?$') { return ($matches[1] + '/' + $matches[2]).ToLower() }
+  if ($u -match '^(?:https?|ssh)://(?:[^@/]+@)?([^/]+)/(.+?)(?:\.git)?/?$') { return ($matches[1] + '/' + $matches[2]).ToLower() }
+  return $u.ToLower()
+}
+
 function Get-NodePackState([string]$Dir, $Pin) {
   # One pack, one honest state. "locked" requires the right repository, the
   # right commit and no local edits; anything else is named for what it is
   # rather than rounded up to installed.
   $dest = Join-Path $Dir $Pin.name
   if (-not (Test-Path -LiteralPath $dest)) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'missing'; Sha = $null; Detail = $null }
+    return [pscustomobject]@{ Name = $Pin.name; State = 'missing'; Sha = $null; Pin = $Pin.sha; Detail = $null }
   }
   if (-not (Test-CommandExists 'git')) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Detail = 'git missing' }
+    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Pin = $Pin.sha; Detail = 'git missing' }
   }
   if (-not (Test-Path -LiteralPath (Join-Path $dest '.git'))) {
     # A folder can exist without being the repository we pinned (copied pack,
     # or a checkout that carries somebody else's .git). It cannot be verified.
-    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Detail = 'not a git checkout' }
+    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Pin = $Pin.sha; Detail = 'not a git checkout' }
   }
   $origin = (& git -C $dest remote get-url origin 2>$null | Out-String).Trim()
   $head = (& git -C $dest rev-parse HEAD 2>$null | Out-String).Trim()
   if ($LASTEXITCODE -ne 0 -or -not $head) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Detail = 'no valid HEAD' }
+    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Pin = $Pin.sha; Detail = 'no valid HEAD' }
   }
   # The wrong origin is how a ComfyUI commit got recorded as a HaDeS pin.
-  if ($origin -and $origin -ne $Pin.url) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'foreign-repo'; Sha = $head; Detail = $origin }
+  # No origin at all is unverifiable, not locked: nothing proves the repository.
+  if (-not $origin) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $head; Pin = $Pin.sha; Detail = 'no origin remote' }
+  }
+  if ((Get-OriginSlug $origin) -ne (Get-OriginSlug $Pin.url)) {
+    return [pscustomobject]@{ Name = $Pin.name; State = 'foreign-repo'; Sha = $head; Pin = $Pin.sha; Detail = $origin }
   }
   if ($head -ne $Pin.sha) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'drift'; Sha = $head; Detail = $null }
+    return [pscustomobject]@{ Name = $Pin.name; State = 'drift'; Sha = $head; Pin = $Pin.sha; Detail = $null }
   }
   $dirty = (& git -C $dest status --porcelain 2>$null | Out-String).Trim()
   if ($dirty) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'dirty'; Sha = $head; Detail = $null }
+    return [pscustomobject]@{ Name = $Pin.name; State = 'dirty'; Sha = $head; Pin = $Pin.sha; Detail = $null }
   }
-  return [pscustomobject]@{ Name = $Pin.name; State = 'locked'; Sha = $head; Detail = $null }
+  return [pscustomobject]@{ Name = $Pin.name; State = 'locked'; Sha = $head; Pin = $Pin.sha; Detail = $null }
 }
 
 function Get-NodePackDrift {
@@ -461,9 +479,16 @@ function Get-NodePackDrift {
 }
 
 function Test-NodePack([string]$Name) {
+  # A directory is not an installation. Ask the one state evaluator: only a
+  # checkout at the pinned commit, in the pinned repository, counts. `dirty`
+  # still counts - it is the user's own working copy, not a broken install.
+  $lock = Get-DependencyLock
   $dir = Get-ComfyNodeDir
-  if (-not $dir) { return $false }
-  return (Test-Path -LiteralPath (Join-Path $dir $Name))
+  if (-not $lock -or -not $dir) { return $false }
+  $pin = @($lock.node_packs | Where-Object { $_.name -eq $Name })[0]
+  if (-not $pin) { return $false }
+  $state = Get-NodePackState $dir $pin
+  return ($state.State -eq 'locked' -or $state.State -eq 'dirty')
 }
 
 function Test-PythonDeps([string]$Python) {
@@ -486,7 +511,7 @@ function Show-Requirements {
     $short = if ($p.Sha) { $p.Sha.Substring(0, 7) } else { '?' }
     $line = 'packs    {0} {1}' -f $p.Name, $p.State
     if ($p.State -eq 'locked') { Ok $line }
-    elseif ($p.State -eq 'drift') { Note ($line + " ($short, lock pins " + $p.Pin + ')') }
+    elseif ($p.State -eq 'drift') { Note ($line + " ($short, lock pins " + $p.Pin.Substring(0, 7) + ')') }
     elseif ($p.Detail) { Note ($line + ' (' + $p.Detail + ')') }
     else { Note $line }
   }
@@ -497,7 +522,7 @@ function Show-Requirements {
               Fix = 'image-stack.ps1 install' }
   $rows += @{ Name = 'node/npx'; Ok = ((Test-CommandExists 'node') -and (Test-CommandExists 'npx')); Detail = 'for the ComfyUI MCP server';
               Fix = 'install Node.js 18+' }
-  foreach ($pack in $NodePacks) {
+  foreach ($pack in @(Get-NodePacks)) {
     $rows += @{ Name = 'nodes'; Ok = (Test-NodePack $pack.Name); Detail = $pack.Why;
                 Fix = 'image-stack.ps1 install' }
   }
@@ -539,7 +564,13 @@ function Install-MissingRequirements {
   # and RES4LYF is what makes beta57 selectable in SwarmUI.
   $dir = Get-ComfyNodeDir
   $cloneFailures = 0
-  foreach ($pack in $NodePacks) {
+  if (-not (Get-DependencyLock)) {
+    # Without pins this install is not reproducible; refuse instead of cloning
+    # whatever upstream main happens to be today.
+    Write-Host 'error      config\dependencies.lock.json is missing or invalid; refusing to install unpinned node packs' -ForegroundColor Red
+    $cloneFailures++
+  }
+  foreach ($pack in @($(if (Get-DependencyLock) { Get-NodePacks } else { @() }))) {
     if (Test-NodePack $pack.Name) { continue }
     if ($dir -and (Test-CommandExists 'git')) {
       $dest = Join-Path $dir $pack.Name
@@ -547,6 +578,13 @@ function Install-MissingRequirements {
       # Clone then check out the locked commit: tracking upstream main means two
       # users installing the same release get different node behaviour.
       & git clone --quiet $pack.Url $dest
+      if ($LASTEXITCODE -ne 0) {
+        # A failed clone is a failed install, not a warning that vanishes from
+        # the exit code.
+        Write-Host ("error      {0}: clone failed" -f $pack.Name) -ForegroundColor Red
+        $cloneFailures++
+        continue
+      }
       if ($LASTEXITCODE -eq 0) {
         $lock = Get-DependencyLock
         $pin = $null
@@ -561,7 +599,16 @@ function Install-MissingRequirements {
             $cloneFailures++
             continue
           }
-          Ok ("node pack -> {0} @ {1}" -f $dest, $pin.sha.Substring(0, 7))
+          # Verify by state, not by the commands having returned 0: a stray
+          # .git or a foreign origin must not read as installed.
+          $state = Get-NodePackState $dir $pin
+          if ($state.State -eq 'locked' -or $state.State -eq 'dirty') {
+            Ok ("node pack -> {0} @ {1}" -f $dest, $pin.sha.Substring(0, 7))
+          } else {
+            Write-Host ("error      {0}: checkout verification says '{1}'" -f $pack.Name, $state.State) -ForegroundColor Red
+            $cloneFailures++
+            continue
+          }
         } else {
           Ok "node pack -> $dest (unpinned: no lock entry)"
         }
@@ -576,7 +623,7 @@ function Install-MissingRequirements {
   $pyForDeps = Find-Python
   $depFailures = $cloneFailures
   if ($pyForDeps) { $depFailures += Install-NodePackDeps $pyForDeps }
-  $packsAdded = @($NodePacks | Where-Object { -not (Test-NodePack $_.Name) }).Count -eq 0
+  $packsAdded = @(@(Get-NodePacks) | Where-Object { -not (Test-NodePack $_.Name) }).Count -eq 0
   if ($packsAdded -and $fixed -gt 0) {
     Note 'restart SwarmUI so it re-reads the sampler/scheduler list from ComfyUI'
   }
@@ -687,12 +734,19 @@ function Invoke-Merge {
 
   $python = Find-Python
   $mergeScript = Join-Path $PSScriptRoot 'merge_anima.py'
-  $argv = @('--base', $Base, '--out', $Out, '--method', $Method, '--scale', $Scale)
   $reportPath = Join-Path ([IO.Path]::GetTempPath()) ("comfy-kit-merge-" + [guid]::NewGuid().ToString('N').Substring(0,8) + '.json')
-  $argv += @('--report', $reportPath)
-  foreach ($d in $DonorPaths) { $argv += @('--donor', $d) }
-  if ($Weights) { $argv += @('--weights', $Weights) }
-  if ($Force) { $argv += '--force' }
+  # One builder for every execution: the fallback retry used to rebuild this list
+  # by hand and forget --report, so a full checkpoint was routed as UNET-only.
+  $buildArgs = {
+    param($Anchor)
+    $a = @('--base', $Anchor, '--out', $Out, '--method', $Method, '--scale', $Scale,
+           '--report', $reportPath)
+    foreach ($d in $DonorPaths) { $a += @('--donor', $d) }
+    if ($Weights) { $a += @('--weights', $Weights) }
+    if ($Force) { $a += '--force' }
+    return ,$a
+  }
+  $argv = & $buildArgs $Base
 
   Note ("merging {0} donor(s) onto {1}" -f $DonorPaths.Count, (Split-Path -Leaf $Base))
   & $python $mergeScript @argv
@@ -719,10 +773,7 @@ function Invoke-Merge {
     Say ''
     Note ("anchoring on {0}: a different lineage from the requested base, so it becomes both the anchor and donor #1" -f (Split-Path -Leaf $Base))
     Note 'all donors keep their original weights; the anchor contributes a zero task vector rather than being removed'
-    $argv = @('--base', $Base, '--out', $Out, '--method', $Method, '--scale', $Scale)
-    foreach ($d in $DonorPaths) { $argv += @('--donor', $d) }
-    if ($Weights) { $argv += @('--weights', $Weights) }
-    if ($Force) { $argv += '--force' }
+    $argv = & $buildArgs $Base
     & $python $mergeScript @argv
     $exit = $LASTEXITCODE
   }
@@ -731,14 +782,30 @@ function Invoke-Merge {
   # Make the merge visible in ComfyUI too. A hard link costs no disk space and
   # keeps both trees in sync; a cross-volume fallback copies the file.
   $script:MergeWasFullCheckpoint = $false
+  $report = $null
   if (Test-Path -LiteralPath $reportPath) {
-    try {
-      $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-      $script:MergeWasFullCheckpoint = [bool]$report.full_checkpoint
-      Note ("output is a {0} ({1} tensors)" -f $(if ($report.full_checkpoint) { 'full checkpoint' } else { 'diffusion-only model' }), $report.tensors)
-    } catch { }
+    try { $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json } catch { $report = $null }
     Remove-Item -LiteralPath $reportPath -Force -ErrorAction SilentlyContinue
   }
+  if ($null -eq $report -or -not $report.out -or -not $report.tensors) {
+    # Guessing here is how a full checkpoint ends up in diffusion_models and
+    # becomes invisible to CheckpointLoaderSimple. Keep the file, refuse to route.
+    Write-Host ("error      the merge wrote {0}, but its report is missing or unreadable; not mirroring it anywhere. Re-run with the same arguments." -f $Out) -ForegroundColor Red
+    exit 1
+  }
+  if ((Resolve-Path -LiteralPath $report.out -ErrorAction SilentlyContinue).Path -ne (Resolve-Path -LiteralPath $Out -ErrorAction SilentlyContinue).Path) {
+    Write-Host ("error      merge report describes {0}, not {1}; not mirroring." -f $report.out, $Out) -ForegroundColor Red
+    exit 1
+  }
+  # CheckpointLoaderSimple needs model + clip + vae. One of the two is a partial
+  # checkpoint: usable by a diffusion loader, not by "load checkpoint".
+  $hasEncoder = [bool]$report.roles.encoder
+  $hasVae = [bool]$report.roles.vae
+  if ($report.full_checkpoint -and -not ($hasEncoder -and $hasVae)) {
+    Note ("checkpoint has {0}; treating it as diffusion-only" -f $(if ($hasEncoder) { 'an encoder but no VAE' } else { 'a VAE but no encoder' }))
+  }
+  $script:MergeWasFullCheckpoint = ($hasEncoder -and $hasVae)
+  Note ("output is a {0} ({1} tensors)" -f $(if ($script:MergeWasFullCheckpoint) { 'full checkpoint' } else { 'diffusion-only model' }), $report.tensors)
 
   if (-not $NoMirror) {
     # A merge made from a full checkpoint carries encoder + VAE and is loadable

@@ -151,6 +151,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pack", action="append")
     ap.add_argument("--self-test", action="store_true")
+    # Callers that act on the JSON (the installer installs what is missing) need
+    # a zero exit; automation that only wants a verdict gets a nonzero one.
+    ap.add_argument("--report-only", action="store_true")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
@@ -183,6 +186,13 @@ def main():
         entry["missing"] = missing
         report.append(entry)
     print(json.dumps(report, indent=2))
+    if args.report_only:
+        return 0
+    # Exit status contract: 0 = every mandatory requirement verified, 2 = at
+    # least one pack has a missing or failed requirement. Unsupported directives
+    # are resolved by the caller, so they do not by themselves change the code.
+    if any(p.get("status") == "failed" or p.get("missing") for p in report):
+        return 2
     return 0
 
 

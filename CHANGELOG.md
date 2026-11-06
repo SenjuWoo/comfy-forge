@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.5.0-rc.5 - correctness and honest tests
+
+### Verified live (RTX 4080 SUPER, ComfyUI 0.44.0, HaDeS 0.4.7)
+
+```
+integration_merge_graph.py
+  donors 4 | merger HaDeSAnimaMultiModelMerger | method Task Arithmetic
+  saver  -> S:\...\output\comfy-kit-4way-proof_00001_.safetensors (4.18 GB)
+  saved  685 tensors, loadable by safetensors
+  visible to UNETLoader in models/diffusion_models
+  render mean=157.0 range=0-255
+  MERGE GRAPH: PASS (merge -> save -> reload -> render)
+```
+
+This is the shipped four-way path executed end to end for the first time - the
+previous integration test only generated an image from an existing checkpoint.
+
+
+### Fixed
+
+- **The fallback merge dropped `--report`.** The retry rebuilt its argument list
+  by hand, so a full checkpoint merged through `-AcceptFallbackAnchor` was
+  reported as diffusion-only and routed to `models/diffusion_models`, where
+  `CheckpointLoaderSimple` cannot see it. One argument builder now serves every
+  execution, and a missing, unreadable or mismatched report stops the run instead
+  of guessing a category.
+- **"Full checkpoint" now means model + encoder + VAE.** A file with only one of
+  the two is treated as diffusion-only and says so.
+- **`Test-NodePack` still meant "the folder exists".** Status and installation now
+  share one state evaluator; only `locked` or `dirty` counts as installed.
+- **The pack list was duplicated** between a hardcoded array and the lock. The
+  lock is now the only source, a missing lock refuses to install anything, and
+  clone/checkout/verification failures all reach the exit code.
+- **A missing git origin could still read as `locked`**, and equivalent GitHub
+  origin spellings were compared as raw strings. Origin is now normalised and an
+  absent origin is `unverifiable`.
+- **Resumable downloads were not resumable.** Staging used a fresh GUID per run,
+  so `curl -C -` never had a partial to continue. The partial is now stable and
+  tied to the expected SHA-256 and size, a partial from a different artifact is
+  discarded, a second installer is refused by a lock file, and a server that
+  ignores the range is detected and restarted cleanly.
+- **The publication-failure test never reached publication.** It placed a
+  directory at the destination, which the installer rejects before downloading.
+  There is now a publication seam that fails after the backup exists, plus crash
+  recovery for the window between `move aside` and `publish`, and an explicit
+  message naming the backup when a restore itself fails.
+- **First-run installs failed on a missing model category.** The staging
+  directory is created with the destination.
+- **`validate-lock.py` could turn a 404 into UNVERIFIED.** It now confirms the
+  repository is reachable before deciding, classifies 401/403/rate-limit as
+  unknown, rejects malformed entries and non-object packs, and has a mock-based
+  self-test.
+- **`check_deps.py` exited 0 with `status: failed`.** Exit 2 now means a mandatory
+  requirement is missing or failed; `--report-only` is for the installer, which
+  installs what is missing.
+- **MCP reads had no deadline** and the port probe accepted any open socket. Reads
+  are bounded, and the probe requires a real `/system_stats` answer.
+- **Preflight judged a command that never launched by the previous exit code.**
+  It now reports "could not run" and can emit JSON evidence with commit, version
+  and per-check state.
+
+### Added
+
+- `TESTS/integration_merge_graph.py` - the four-way HaDeS graph through the real
+  API: merge, save, reload through `UNETLoader`, render, with pixel verification.
+- `TESTS/fixtures/http_range_server.py` - a local fixture that honours or ignores
+  `Range:`, used to prove the resume logic against real bytes.
+
 ## v0.5.0-rc.4 - closeout
 
 ### Fixed

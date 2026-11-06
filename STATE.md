@@ -3,7 +3,7 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.5.0-rc.4); rc.1 through rc.3 are published. `v0.4.2` is the last *published stable*; it is not a correctness
+**Version** — see `VERSION` (0.5.0-rc.5); rc.1 through rc.4 are published. `v0.4.2` is the last *published stable*; it is not a correctness
 reference — it contains the donor-dropping four-way fallback fixed in rc.1 and
 should not be used for merges.
 
@@ -35,9 +35,10 @@ should not be used for merges.
 
 **Next**
 
-- Enable the HaDeS save node in the UI graph and prove a UI-driven save reloads.
+- `TESTS/integration_merge_graph.py` executes the four-way HaDeS graph through the
+  real API (merge -> save -> reload -> render); it needs the 5.6 GB donor set.
 - Cover the standalone (non-SwarmUI) ComfyUI install path on a clean machine.
-- MCP `enqueue_workflow`: only `get_system_stats` is proven over MCP so far.
+- MCP is proven end to end: `test_mcp_handshake.py --workflow` enqueues through the MCP tool and waits for a rendered image.
 
 **Log** — dtype policy, transactional writer, dependency resolver, safe model
 publish, pinned node packs, live integration test.
