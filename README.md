@@ -33,7 +33,11 @@ powershell -File TOOLS\image-stack.ps1 install
 powershell -File TOOLS\image-stack.ps1 generate -Prompt "a neon alley at night, rain, reflections"
 
 # 3. merge four checkpoints into one file
-powershell -File TOOLS\image-stack.ps1 merge -Donors "<a>","<b>","<c>","<d>" -Weights 0.85,0.75,0.6,0.5
+#    all four must share a lineage; if their true ancestor is missing, add
+#    -AcceptFallbackAnchor and the first donor becomes the anchor WITHOUT
+#    losing its weight (the CLI prints the resulting shares)
+powershell -File TOOLS\image-stack.ps1 merge -Base "<same-lineage base>" `
+  -Donors "<a>","<b>","<c>","<d>" -Weights 0.85,0.75,0.6,0.5
 ```
 
 `install` is safe to re-run: it downloads only what is missing and
@@ -68,8 +72,14 @@ powershell -File TOOLS\image-stack.ps1 merge `
           "Details - Terra Rising Unity 3.0 - Turbo.safetensors",
           "Composition - hentai_studio_quality-000008.safetensors",
           "Consistensy - One obsession_animaV5turbo.safetensors" `
-  -Weights 0.85,0.75,0.60,0.50
+  -Weights 0.85,0.75,0.60,0.50 `
+  -AcceptFallbackAnchor
 ```
+
+`-Base` names the shared ancestor. When the true ancestor is not on disk, the
+CLI refuses rather than silently changing your recipe; `-AcceptFallbackAnchor`
+then uses the first donor as the computational anchor and keeps it in the donor
+list with its weight, so the blend still sums to your intended 31.5/27.8/22.2/18.5.
 
 The finished file lands in **both** model trees — SwarmUI's
 `Models\Stable-Diffusion\Anima\` and ComfyUI's
@@ -95,9 +105,10 @@ Anima ships in two generations that look interchangeable and are not:
 
 Pairing block *N* of a 40-block model with block *N* of a 28-block model mixes
 unrelated layers. The file loads, the sampler runs, and you get a black PNG with
-no error anywhere. `merge_anima.py` counts the blocks and refuses; the CLI then
-anchors on the first donor automatically, because that is the only merge those
-files support. An explicit `-Base` is never overridden.
+no error anywhere. `merge_anima.py` counts the blocks and refuses. The CLI can anchor on the first
+donor instead, but only when you pass `-AcceptFallbackAnchor`, and that donor
+keeps its weight in the denominator rather than being dropped. An explicit
+`-Base` is never overridden.
 
 ### Samplers and schedulers from RES4LYF
 

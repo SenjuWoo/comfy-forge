@@ -41,7 +41,14 @@ DTYPE_NAMES = {
     torch.float32: "F32",
 }
 NAME_DTYPES = {v: k for k, v in DTYPE_NAMES.items()}
-ITEM_SIZE = {"BF16": 2, "F16": 2, "F32": 4}
+# Every safetensors dtype, not just the float ones: full checkpoints carry
+# int64 step counters and bool masks, and a missing entry used to raise
+# KeyError in the writer before anything was written.
+ITEM_SIZE = {
+    "BOOL": 1, "U8": 1, "I8": 1, "I16": 2, "U16": 2,
+    "I32": 4, "U32": 4, "I64": 8, "U64": 8,
+    "F16": 2, "BF16": 2, "F32": 4, "F64": 8,
+}
 
 
 def read_header(path):
@@ -181,6 +188,14 @@ def main(argv=None):
                     help="merge even when the donor has a different block count (usually garbage)")
     args = ap.parse_args(argv)
 
+    def same_file(a, b):
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+    # An input checkpoint is never a valid output target: --force means
+    # "overwrite an old merge", not "destroy a model you still need".
+    for src in [args.base] + args.donor:
+        if same_file(args.out, src):
+            sys.exit(f"refusing to write over an input checkpoint: {args.out}")
     if args.out and not args.force and os.path.exists(args.out):
         sys.exit(f"refusing to overwrite {args.out} (use --force)")
     if len(args.donor) > 4:
@@ -208,7 +223,8 @@ def main(argv=None):
     donor_keys = [donor_index(h) for h in donor_headers]
     base = open_lazy(args.base)
 
-    keys, shapes, dtypes, merged, kept, skipped = [], {}, {}, 0, 0, 0
+    keys, shapes, dtypes = [], {}, {}
+    merged = kept = skipped = nonfloat = 0
     for key, info in base_header.items():
         keys.append(key)
         shapes[key] = tuple(info["shape"])
@@ -216,6 +232,9 @@ def main(argv=None):
         dtypes[key] = {"bf16": "BF16", "fp16": "F16", "fp32": "F32",
                        None: info["dtype"]}[args.dtype]
         if key.endswith(".scale_weight") or info["dtype"] not in NAME_DTYPES:
+            # Integer / bool / scalar tensors cannot be blended meaningfully and
+            # are copied verbatim from the base rather than silently coerced.
+            nonfloat += 1
             skipped += 1
             continue
         if args.no_protect_adapter is False and "llm_adapter" in key:
@@ -276,7 +295,11 @@ def main(argv=None):
                 or (not args.no_protect_adapter and "llm_adapter" in key)
                 or any(ck not in dk for dk in donor_keys))
         if keep:
-            return tensor_bytes(get(base, key).to(NAME_DTYPES[dtypes[key]]))
+            # Non-float tensors have no conversion target; copy them verbatim.
+            t = get(base, key)
+            if dtypes[key] in NAME_DTYPES:
+                t = t.to(NAME_DTYPES[dtypes[key]])
+            return tensor_bytes(t)
         values = [get(d, dk[ck]) for d, dk in zip(donors, donor_keys)]
         value = merge_key(args.method, get(base, key), values, weights, args.scale)
         return tensor_bytes(value.to(NAME_DTYPES[dtypes[key]]))
@@ -289,7 +312,9 @@ def main(argv=None):
     # `workflow` / `prompt` describe how the BASE was generated (they name the
     # base's own models), and `modelspec.hash_sha256` belongs to the base's
     # weights, so both would claim this file is the base. Dropped.
-    DROP = ("workflow", "prompt", "__spacer", "modelspec.hash_sha256")
+    DROP = ("workflow", "prompt", "__spacer", "modelspec.hash_sha256",
+            "modelspec.author", "modelspec.email", "modelspec.license",
+            "modelspec.license_url", "modelspec.merged_from", "modelspec.date")
     meta = {k: v for k, v in base_meta.items() if k not in DROP}
     meta["modelspec.title"] = args.title or f"{os.path.splitext(os.path.basename(args.out))[0]}"
     meta["modelspec.description"] = (
@@ -320,7 +345,8 @@ def main(argv=None):
     if len(check_header) != len(keys):
         sys.exit(f"write verification failed: {len(check_header)} tensors on disk, "
                  f"{len(keys)} expected")
-    print(f"merged    {merged} tensors, kept {kept} llm_adapter, skipped {skipped}")
+    print(f"merged    {merged} tensors, kept {kept} llm_adapter, "
+          f"preserved {nonfloat} non-float, skipped {skipped}")
     print(f"wrote     {args.out}  ({total_bytes / 1e9:.2f} GB, {len(keys)} tensors)")
     print(f"sha256    {digest}")
     print(f"elapsed   {time.time() - started:.1f}s")

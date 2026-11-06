@@ -71,9 +71,9 @@ def main():
         print("ok   list_tools -> catalog returned")
 
         if not port:
-            print("UNVERIFIED: real backend operation (nothing to talk to)")
-            print("MCP: PASS (handshake only)")
-            return 0
+            print("UNVERIFIED: no backend, real operation not performed")
+            print("MCP: UNVERIFIED (handshake only)")
+            return 3
 
         stats = send(4, "tools/call", {"name": "call_tool",
                                        "arguments": {"name": "get_system_stats",
