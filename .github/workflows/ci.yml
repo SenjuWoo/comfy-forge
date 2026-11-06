@@ -34,9 +34,20 @@ jobs:
       - name: Merge math
         run: python TESTS/test_merge.py
 
-      - name: Model install safety (backup, restore, fault injection)
+      - name: Model install safety (ownership, crash recovery, real HTTP resume)
         shell: powershell
         run: ./TESTS/Test-ModelInstall.ps1
+
+      - name: Node pack state and clone recovery
+        shell: powershell
+        run: ./TESTS/Test-NodePackState.ps1
+
+      - name: Shipped workflow converts to an executable graph
+        run: python TESTS/test_workflow_convert.py
+
+      - name: Release identity (VERSION, changelog, STATE)
+        shell: powershell
+        run: ./TESTS/Test-Release.ps1
 
       - name: Dependency resolver self-test
         run: python TOOLS/check_deps.py --self-test

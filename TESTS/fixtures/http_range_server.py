@@ -18,6 +18,8 @@ def main():
     ap.add_argument("file")
     ap.add_argument("port", type=int)
     ap.add_argument("--ignore-range", action="store_true")
+    ap.add_argument("--reject-range", action="store_true",
+                    help="answer any Range request with 416, like a server that cannot resume")
     ap.add_argument("--log", default=None)
     args = ap.parse_args()
 
@@ -30,6 +32,15 @@ def main():
         def do_GET(self):
             start = 0
             header = self.headers.get("Range")
+            if header and args.reject_range:
+                if args.log:
+                    with open(args.log, "a", encoding="utf-8") as f:
+                        f.write(f"{header} rejected\n")
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{len(payload)}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if header and not args.ignore_range:
                 # "bytes=1234-" is the only form curl -C - sends.
                 try:

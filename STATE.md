@@ -3,9 +3,9 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.5.0-rc.5); rc.1 through rc.4 are published. `v0.4.2` is the last *published stable*; it is not a correctness
-reference — it contains the donor-dropping four-way fallback fixed in rc.1 and
-should not be used for merges.
+**Version** — see `VERSION` (0.5.1). `v0.5.0` is published but was tagged on a
+tree that still declared `0.5.0-rc.5`; 0.5.1 is the first release whose tag,
+VERSION, changelog and STATE agree, enforced by `TESTS/Test-Release.ps1`.
 
 **Done**
 

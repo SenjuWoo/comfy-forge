@@ -43,10 +43,13 @@ Run-Check 'powershell syntax' 'powershell' @('-NoProfile', '-ExecutionPolicy', '
 Run-Check 'installer gate'    'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-AnimaInstall.ps1')
 Run-Check 'mirror'            'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Mirror.ps1')
 Run-Check 'model install'     'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-ModelInstall.ps1')
+Run-Check 'node pack state'   'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-NodePackState.ps1')
+Run-Check 'release identity'  'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Release.ps1')
 Run-Check 'version'           'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Version.ps1')
 Run-Check 'merge math'        $py @('TESTS\test_merge.py')
 Run-Check 'deps resolver'     $py @('TOOLS\check_deps.py', '--self-test')
 Run-Check 'workflow structure' $py @('TESTS\validate_workflows.py') 3
+Run-Check 'workflow convert'  $py @('TESTS\test_workflow_convert.py')
 Run-Check 'workflow lineage gate' $py @('TESTS\validate_workflows.py', '--self-test')
 Run-Check 'dependency lock'   $py @('TOOLS\validate-lock.py') 3
 Run-Check 'MCP surface'       $py @('TESTS\test_mcp_handshake.py') 3

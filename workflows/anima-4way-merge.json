@@ -33,7 +33,7 @@
           "links": null
         }
       ],
-      "title": "DONOR A \u2014 choose checkpoint 1",
+      "title": "DONOR A — choose checkpoint 1",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -91,7 +91,7 @@
           "links": null
         }
       ],
-      "title": "DONOR B \u2014 choose checkpoint 2",
+      "title": "DONOR B — choose checkpoint 2",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -293,7 +293,7 @@
           "links": null
         }
       ],
-      "title": "PROMPT \u2014 edit scene here",
+      "title": "PROMPT — edit scene here",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -386,7 +386,7 @@
           "links": null
         }
       ],
-      "title": "IMAGE SIZE \u2014 1024 \u00d7 1024",
+      "title": "IMAGE SIZE — 1024 × 1024",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -428,7 +428,7 @@
       ],
       "flags": {},
       "order": 11,
-      "mode": 4,
+      "mode": 0,
       "inputs": [
         {
           "name": "model",
@@ -453,7 +453,7 @@
           "links": null
         }
       ],
-      "title": "OPTIONAL \u2014 enable (Ctrl+M) to write the merged checkpoint",
+      "title": "OPTIONAL — enable (Ctrl+M) to write the merged checkpoint",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "7819145eb68a0ce0a2f963b8c15e9ec4068b7be9",
@@ -543,7 +543,7 @@
           "links": null
         }
       ],
-      "title": "4-WAY MERGE \u2014 adjust weights here",
+      "title": "4-WAY MERGE — adjust weights here",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "0.4.5",
@@ -552,13 +552,13 @@
       "widgets_values": [
         "Task Arithmetic",
         0.5,
-        1,
+        0.3,
         0,
         "fixed",
-        0.85,
-        0.75,
-        0.6,
-        0.5,
+        0.7,
+        0.9,
+        0.55,
+        0.45,
         true
       ],
       "widgets_values_named": {
@@ -637,7 +637,7 @@
           "links": null
         }
       ],
-      "title": "GENERATE \u2014 sampler / steps / CFG",
+      "title": "GENERATE — sampler / steps / CFG",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "0.4.5",
@@ -796,7 +796,7 @@
           "links": null
         }
       ],
-      "title": "DONOR C \u2014 choose checkpoint 3",
+      "title": "DONOR C — choose checkpoint 3",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -854,7 +854,7 @@
           "links": null
         }
       ],
-      "title": "DONOR D \u2014 choose checkpoint 4",
+      "title": "DONOR D — choose checkpoint 4",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -912,7 +912,7 @@
           "links": null
         }
       ],
-      "title": "BASE \u2014 must share the donors\u2019 lineage (same block count)",
+      "title": "BASE — must share the donors’ lineage (same block count)",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -969,7 +969,7 @@
           "links": null
         }
       ],
-      "title": "AUTO SAVE \u2014 generated PNG",
+      "title": "AUTO SAVE — generated PNG",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.44.0",
@@ -1003,7 +1003,7 @@
         "text": ""
       },
       "widgets_values": [
-        "BASE and every DONOR must be the same Anima lineage (same block count).\nThe 40-block Anima-2.9B base CANNOT be blended with 28-block fine-tunes -\nthat renders solid black. Use the CLI (image-stack.ps1 merge) to check."
+        "This graph saves a merged Anima model.\nBASE (node 155) and every DONOR must be the same Anima lineage (same block\ncount). The 40-block Anima-2.9B base cannot be blended with 28-block\nfine-tunes - that renders solid black.\nWeights 0.70/0.90/0.55/0.45 at scale 0.30, the same recipe the CLI and\nTESTS/integration_merge_graph.py use. Change the loader filenames for your\nown models; everything else can stay as it is.\nThe merge is written to output/ as a .safetensors checkpoint, then copy it\ninto models/diffusion_models to load it with UNETLoader."
       ],
       "color": "#232a1f",
       "bgcolor": "#161a13"
@@ -1146,7 +1146,7 @@
     },
     {
       "id": 2,
-      "title": "2  MERGE \u2014 FOUR WEIGHTS, METHOD, ADAPTER PROTECTION",
+      "title": "2  MERGE — FOUR WEIGHTS, METHOD, ADAPTER PROTECTION",
       "bounding": [
         605,
         165,
@@ -1158,7 +1158,7 @@
     },
     {
       "id": 3,
-      "title": "3  OPTIONAL CHECKPOINT EXPORT \u2014 BYPASSED UNTIL ENABLED",
+      "title": "3  OPTIONAL CHECKPOINT EXPORT — BYPASSED UNTIL ENABLED",
       "bounding": [
         1160,
         160,
@@ -1170,7 +1170,7 @@
     },
     {
       "id": 4,
-      "title": "4  GENERATION SETUP \u2014 ENCODER, VAE, PROMPT, IMAGE SIZE",
+      "title": "4  GENERATION SETUP — ENCODER, VAE, PROMPT, IMAGE SIZE",
       "bounding": [
         605,
         1005,
@@ -1182,7 +1182,7 @@
     },
     {
       "id": 5,
-      "title": "5  PREVIEW & SAVE \u2014 IMAGE SAVES AUTOMATICALLY",
+      "title": "5  PREVIEW & SAVE — IMAGE SAVES AUTOMATICALLY",
       "bounding": [
         1690,
         60,

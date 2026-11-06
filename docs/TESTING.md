@@ -75,6 +75,25 @@ and renders. It loads five models and can take several minutes; `--dry-run`
 checks the graph against `/object_info` without running it. This is the only
 check that proves the shipped merge path end to end, and CI cannot run it.
 
+It executes `workflows/anima-4way-merge.json` itself (converted by
+`TESTS/workflow_to_api.py`), so the weights, scale, loaders and scheduler are the
+ones the shipped file advertises. Every run uses a unique output name, refuses to
+overwrite an existing model, and deletes only the two files it created - pass
+`--keep-artifacts` to inspect them.
+
+## Safety regressions (fast, but need git and python)
+
+```powershell
+./TESTS/Test-ModelInstall.ps1   # ownership, crash recovery, real HTTP resume
+./TESTS/Test-NodePackState.ps1  # locked/dirty/drift/foreign/status-failure, clone recovery
+./TESTS/Test-Release.ps1        # VERSION, changelog, STATE and tag agree
+python TESTS/test_workflow_convert.py   # shipped workflow is executable, drift rejected
+```
+
+`Test-ModelInstall.ps1` starts `TESTS/fixtures/http_range_server.py` and lets real
+curl talk to it, so a resume is proven by an actual `Range: bytes=N-` request
+rather than a mocked downloader.
+
 ## Node-pack dependency checks
 
 ```powershell
