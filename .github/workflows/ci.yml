@@ -34,6 +34,19 @@ jobs:
       - name: Merge math
         run: python TESTS/test_merge.py
 
+      - name: Mirror safety (link identity, collisions, cross-volume)
+        shell: pwsh
+        run: ./TESTS/Test-Mirror.ps1
+
+      - name: Workflow structure and lineage
+        run: python TESTS/validate_workflows.py
+
+      - name: Version file present
+        shell: pwsh
+        run: |
+          if (-not (Test-Path VERSION)) { throw 'VERSION file missing' }
+          Get-Content VERSION
+
       - name: MCP handshake
         run: python TESTS/test_mcp_handshake.py
         timeout-minutes: 4        # npx downloads the server; never hang the job

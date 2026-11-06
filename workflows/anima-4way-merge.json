@@ -1,7 +1,7 @@
 {
   "id": "c71c6479-e668-424d-a7dd-7fe56e3b019c",
   "revision": 0,
-  "last_node_id": 156,
+  "last_node_id": 157,
   "last_link_id": 15,
   "nodes": [
     {
@@ -33,7 +33,7 @@
           "links": null
         }
       ],
-      "title": "DONOR A — choose checkpoint 1",
+      "title": "DONOR A \u2014 choose checkpoint 1",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -91,7 +91,7 @@
           "links": null
         }
       ],
-      "title": "DONOR B — choose checkpoint 2",
+      "title": "DONOR B \u2014 choose checkpoint 2",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -293,7 +293,7 @@
           "links": null
         }
       ],
-      "title": "PROMPT — edit scene here",
+      "title": "PROMPT \u2014 edit scene here",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -386,7 +386,7 @@
           "links": null
         }
       ],
-      "title": "IMAGE SIZE — 1024 × 1024",
+      "title": "IMAGE SIZE \u2014 1024 \u00d7 1024",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -453,7 +453,7 @@
           "links": null
         }
       ],
-      "title": "OPTIONAL — Save merged checkpoint (Ctrl+B to enable)",
+      "title": "OPTIONAL \u2014 enable (Ctrl+M) to write the merged checkpoint",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "7819145eb68a0ce0a2f963b8c15e9ec4068b7be9",
@@ -543,7 +543,7 @@
           "links": null
         }
       ],
-      "title": "4-WAY MERGE — adjust weights here",
+      "title": "4-WAY MERGE \u2014 adjust weights here",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "0.4.5",
@@ -637,7 +637,7 @@
           "links": null
         }
       ],
-      "title": "GENERATE — sampler / steps / CFG",
+      "title": "GENERATE \u2014 sampler / steps / CFG",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "0.4.5",
@@ -796,7 +796,7 @@
           "links": null
         }
       ],
-      "title": "DONOR C — choose checkpoint 3",
+      "title": "DONOR C \u2014 choose checkpoint 3",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -854,7 +854,7 @@
           "links": null
         }
       ],
-      "title": "DONOR D — choose checkpoint 4",
+      "title": "DONOR D \u2014 choose checkpoint 4",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -912,7 +912,7 @@
           "links": null
         }
       ],
-      "title": "BASE — original Anima ancestor (required)",
+      "title": "BASE \u2014 must share the donors\u2019 lineage (same block count)",
       "properties": {
         "cnr_id": "hades-anima-suite",
         "ver": "8501072d168c817a6cb65f918b4bc397cf8d14b7",
@@ -925,21 +925,21 @@
         }
       },
       "widgets_values": [
-        "Anima-2.9B-preview-v1.safetensors",
+        "Versetility - Diving-Anima_v9.0.safetensors",
         "default",
         3,
         true,
         "None"
       ],
       "widgets_values_named": {
-        "unet_name": "Anima-2.9B-preview-v1.safetensors",
+        "unet_name": "Versetility - Diving-Anima_v9.0.safetensors",
         "weight_dtype": "default",
         "flow_shift": 3,
         "auto_remap_diffusers": true,
         "external_llm_adapter": "None"
       },
-      "color": "#1b2028",
-      "bgcolor": "#12151a"
+      "color": "#2a1f1f",
+      "bgcolor": "#1a1414"
     },
     {
       "id": 156,
@@ -969,7 +969,7 @@
           "links": null
         }
       ],
-      "title": "AUTO SAVE — generated PNG",
+      "title": "AUTO SAVE \u2014 generated PNG",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.44.0",
@@ -981,6 +981,32 @@
       "widgets_values_named": {
         "filename_prefix": "Anima_4Way_Preview"
       }
+    },
+    {
+      "id": 157,
+      "type": "Note",
+      "pos": [
+        80,
+        20
+      ],
+      "size": [
+        420,
+        120
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "READ FIRST",
+      "properties": {
+        "text": ""
+      },
+      "widgets_values": [
+        "BASE and every DONOR must be the same Anima lineage (same block count).\nThe 40-block Anima-2.9B base CANNOT be blended with 28-block fine-tunes -\nthat renders solid black. Use the CLI (image-stack.ps1 merge) to check."
+      ],
+      "color": "#232a1f",
+      "bgcolor": "#161a13"
     }
   ],
   "links": [
@@ -1120,7 +1146,7 @@
     },
     {
       "id": 2,
-      "title": "2  MERGE — FOUR WEIGHTS, METHOD, ADAPTER PROTECTION",
+      "title": "2  MERGE \u2014 FOUR WEIGHTS, METHOD, ADAPTER PROTECTION",
       "bounding": [
         605,
         165,
@@ -1132,7 +1158,7 @@
     },
     {
       "id": 3,
-      "title": "3  OPTIONAL CHECKPOINT EXPORT — BYPASSED UNTIL ENABLED",
+      "title": "3  OPTIONAL CHECKPOINT EXPORT \u2014 BYPASSED UNTIL ENABLED",
       "bounding": [
         1160,
         160,
@@ -1144,7 +1170,7 @@
     },
     {
       "id": 4,
-      "title": "4  GENERATION SETUP — ENCODER, VAE, PROMPT, IMAGE SIZE",
+      "title": "4  GENERATION SETUP \u2014 ENCODER, VAE, PROMPT, IMAGE SIZE",
       "bounding": [
         605,
         1005,
@@ -1156,7 +1182,7 @@
     },
     {
       "id": 5,
-      "title": "5  PREVIEW & SAVE — IMAGE SAVES AUTOMATICALLY",
+      "title": "5  PREVIEW & SAVE \u2014 IMAGE SAVES AUTOMATICALLY",
       "bounding": [
         1690,
         60,

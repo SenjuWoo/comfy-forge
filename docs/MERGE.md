@@ -135,3 +135,30 @@ python TOOLS\merge_anima.py --base <file> --donor <file> --weights 0.5 --out <fi
 
 `--dry-run` reports how many tensors would merge, how many are protected, and
 how many the donor does not have, without writing anything.
+
+## The anchor rule (read this before blaming a weak merge)
+
+Task arithmetic is `M = B + scale * sum(w_i * (D_i - B)) / sum(w_i)`.
+
+At `scale = 1` the base cancels algebraically and the result is
+`sum(w_i * D_i) / sum(w_i)` — a pure weighted average of the donors. That is why
+the denominator must include **every** donor you asked for, including one that
+also happens to serve as the base.
+
+When the requested base is a different lineage (40-block Anima-2.9B against
+28-block fine-tunes), there is no common ancestor to anchor on. The CLI can
+anchor on one donor instead, but it keeps that donor **in the donor list with
+its weight**: its task vector is zero, its weight still counts.
+
+| Recipe | A | B | C | D |
+|---|---|---|---|---|
+| weights as requested | 0.85 | 0.75 | 0.60 | 0.50 |
+| share at scale 1, anchor kept | 31.48% | 27.78% | 22.22% | 18.52% |
+| share if the anchor is dropped | 0% | 40.54% | 32.43% | 27.03% |
+
+The second-row behaviour is what this tool does. The third row is what an
+earlier version did, and it silently rewrote the recipe — so the fallback is now
+opt-in (`-AcceptFallbackAnchor`) and the merge refuses to run without it.
+
+`scale` is a strength, not a second weight: `0` returns the base untouched,
+`1` is the full blend, `2` extrapolates past it.
