@@ -54,6 +54,18 @@ Check ($bad.Count -eq 0) 'every file is https with a pinned 64-hex hash'
 $presets = [IO.File]::ReadAllText((Join-Path $PackRoot 'presets\presets.json')) | ConvertFrom-Json
 Check (@($presets.PSObject.Properties).Count -ge 35) 'presets parse as entries'
 
+# SwarmUI selects samplers/schedulers by the names ComfyUI reports, so a preset
+# must never carry a HaDeS-only alias like anima_beta57 - it would fail at
+# generation time. RES4LYF names are fine because install fetches that pack.
+$badNames = @($presets.PSObject.Properties | Where-Object {
+  $pm = $_.Value.param_map
+  ($pm.sampler -eq 'anima_beta57') -or ($pm.scheduler -eq 'anima_beta57') -or
+  ($pm.scheduler -eq 'anima_lightning_tdm')
+})
+Check ($badNames.Count -eq 0) 'no preset uses a HaDeS-only sampler alias'
+$beta57 = @($presets.PSObject.Properties | Where-Object { $_.Value.param_map.scheduler -eq 'beta57' })
+Check ($beta57.Count -ge 1) 'beta57 presets exist for the RES4LYF path'
+
 Remove-Item -Recurse -Force $fx -ErrorAction SilentlyContinue
 if ($fail) { throw "$fail Anima check(s) failed" }
 Write-Host 'ANIMA INSTALL GATE: PASS'

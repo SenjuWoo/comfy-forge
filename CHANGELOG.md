@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.3.0 — RES4LYF samplers in SwarmUI
+
+### Added
+
+- `install` clones **RES4LYF** alongside HaDeS, so `beta57`, `bong_tangent`,
+  `res_2s`, `res_2m` and `rk_beta` exist. SwarmUI merges ComfyUI's `KSampler`
+  lists into its own dropdowns at backend connect, so they become selectable
+  after a restart (schedulers 9 → 11, samplers 45 → 64 here).
+- Three presets on the new schedules: `Anima - Official Best (ER-SDE + beta57)`,
+  `Anima - Author Daily (Euler + beta57)`, `Anima - Combo (res_2s + bong_tangent)`.
+- `install` also installs `pywavelets`, which RES4LYF imports.
+
+### Fixed
+
+- `presets/ANIMA-HANDOFF.md` claimed RES4LYF names could not be used from
+  SwarmUI. That was wrong: `ComfyUIBackendExtension.AssignValuesFromRaw` merges
+  the live KSampler list. Corrected with the measured numbers.
+- Documented that HaDeS's `anima_beta57` is `beta57` (same beta 0.5/0.7 schedule).
+
 ## v0.2.1 — where the merge actually lands
 
 ### Fixed

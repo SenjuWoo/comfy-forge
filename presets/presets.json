@@ -596,5 +596,50 @@
             "sigmashift": "3",
             "vae": "Automatic"
         }
+    },
+    "Anima - Official Best (ER-SDE + beta57)": {
+        "author": "local",
+        "title": "Anima - Official Best (ER-SDE + beta57)",
+        "description": "The 50-step reference recipe with RES4LYF's beta57 schedule (0.5/0.7 beta), which is what the HaDeS graph calls anima_beta57. Requires the RES4LYF node pack; install fetches it.",
+        "preview_image": "imgs/model_placeholder.jpg",
+        "is_starred": false,
+        "param_map": {
+            "steps": "50",
+            "cfgscale": "4.5",
+            "sampler": "er_sde",
+            "scheduler": "beta57",
+            "sigmashift": "3",
+            "vae": "Automatic"
+        }
+    },
+    "Anima - Author Daily (Euler + beta57)": {
+        "author": "local",
+        "title": "Anima - Author Daily (Euler + beta57)",
+        "description": "The 28-step daily driver on the beta57 schedule instead of SGM Uniform. Same cost, different low-frequency balance. Requires the RES4LYF node pack.",
+        "preview_image": "imgs/model_placeholder.jpg",
+        "is_starred": false,
+        "param_map": {
+            "steps": "28",
+            "cfgscale": "4.5",
+            "sampler": "euler",
+            "scheduler": "beta57",
+            "sigmashift": "3",
+            "vae": "Automatic"
+        }
+    },
+    "Anima - Combo (res_2s + bong_tangent)": {
+        "author": "local",
+        "title": "Anima - Combo (res_2s + bong_tangent)",
+        "description": "RES4LYF's res_2s sampler with the bong_tangent schedule. Slower per step and more textured than ER-SDE; try 36 steps at CFG 4.0.",
+        "preview_image": "imgs/model_placeholder.jpg",
+        "is_starred": false,
+        "param_map": {
+            "steps": "36",
+            "cfgscale": "4.0",
+            "sampler": "res_2s",
+            "scheduler": "bong_tangent",
+            "sigmashift": "3",
+            "vae": "Automatic"
+        }
     }
 }

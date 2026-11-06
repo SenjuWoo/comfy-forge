@@ -69,14 +69,20 @@ its byte length and SHA-256 match the manifest.
 
 ## Important facts for an agent
 
-- **`rk_beta`, `beta57`, `res_2s`, `res_2m`, `bong_tangent` cannot be used from
-  SwarmUI.** They are RES4LYF sampler/scheduler names; RES4LYF exposes its own
-  nodes rather than KSampler names, and SwarmUI's sampler list is a hardcoded
-  array in `ComfyUIBackendExtension.cs`. Installing RES4LYF does not make them
-  selectable, so this repo ships none of them. The presets use the closest
-  things SwarmUI exposes (`er_sde`, `beta`, `res_multistep`, `linear_quadratic`),
-  plus the newer `seeds_2`, `sa_solver_pece` and `exp_heun_2_x0` that are
-  already in the installed ComfyUI backend.
+- **RES4LYF names DO work in SwarmUI, once the pack is installed.** Earlier notes
+  in this file claimed the opposite; that was wrong. RES4LYF appends `beta57`,
+  `bong_tangent`, `res_2s`, `res_2m`, `rk_beta` to ComfyUI's
+  `SCHEDULER_NAMES` / `SAMPLER_NAMES`, and
+  `ComfyUIBackendExtension.AssignValuesFromRaw` merges whatever `KSampler`
+  reports (`SamplerParam` / `SchedulerParam`, "(New in KS)") into SwarmUI's own
+  dropdowns at startup. Verified: schedulers went 9 → 11 and samplers 45 → 64
+  after installing RES4LYF and restarting.
+  `install` clones it into `custom_nodes`; **restart SwarmUI afterwards**, because
+  the list is read when the backend connects.
+- **`anima_beta57` is a HaDeS alias, not a ComfyUI name.** It is implemented in
+  `anima_ksampler_nodes.py` as `beta_scheduler(alpha=0.5, beta=0.7)`, which is
+  exactly what RES4LYF registers as **`beta57`**. In SwarmUI, use `beta57`.
+  The HaDeS KSampler node keeps the `anima_beta57` spelling for its own list.
 - **The Anima preset numbers come from the model card** (`euler` / `er_sde` /
   `res_multistep` with `sgm_uniform` / `beta` / `linear_quadratic`, 28–50 steps,
   CFG 3.5–5). Anima's training data carries **no score tags**, so the Anima

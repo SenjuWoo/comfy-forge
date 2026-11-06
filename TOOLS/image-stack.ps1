@@ -248,10 +248,22 @@ function Get-ComfyNodeDir {
   return $null
 }
 
-function Test-HadesPack {
+# Custom node packs this kit relies on. RES4LYF is what puts beta57 / res_2s /
+# rk_beta into ComfyUI's scheduler list, which SwarmUI then merges into its own
+# Scheduler dropdown on startup (ComfyUIBackendExtension.AssignValuesFromRaw).
+$NodePacks = @(
+  @{ Name = 'hades-anima-suite'
+     Url  = 'https://github.com/Devildonia/HaDeS-Anima-Suite.git'
+     Why  = 'HaDeS Anima nodes: 4-way merge graph, anima_beta57 scheduler' },
+  @{ Name = 'RES4LYF'
+     Url  = 'https://github.com/ClownsharkBatwing/RES4LYF.git'
+     Why  = 'extra samplers/schedulers: beta57, res_2s, rk_beta, bong_tangent' }
+)
+
+function Test-NodePack([string]$Name) {
   $dir = Get-ComfyNodeDir
   if (-not $dir) { return $false }
-  return (Test-Path -LiteralPath (Join-Path $dir 'hades-anima-suite'))
+  return (Test-Path -LiteralPath (Join-Path $dir $Name))
 }
 
 function Test-PythonDeps([string]$Python) {
@@ -274,8 +286,10 @@ function Show-Requirements {
               Fix = 'image-stack.ps1 install' }
   $rows += @{ Name = 'node/npx'; Ok = ((Test-CommandExists 'node') -and (Test-CommandExists 'npx')); Detail = 'for the ComfyUI MCP server';
               Fix = 'install Node.js 18+' }
-  $rows += @{ Name = 'hades nodes'; Ok = (Test-HadesPack); Detail = 'HaDeS-Anima-Suite (custom_nodes)';
-              Fix = 'image-stack.ps1 install' }
+  foreach ($pack in $NodePacks) {
+    $rows += @{ Name = 'nodes'; Ok = (Test-NodePack $pack.Name); Detail = $pack.Why;
+                Fix = 'image-stack.ps1 install' }
+  }
   $rows += @{ Name = 'git'; Ok = (Test-CommandExists 'git'); Detail = 'for node-pack installs';
               Fix = 'install Git' }
 
@@ -310,18 +324,25 @@ function Install-MissingRequirements {
   }
   else { Write-Host 'warning    no python found; merges are unavailable' -ForegroundColor Yellow }
 
-  # HaDeS Anima Suite: only needed by the ComfyUI workflow, never by the CLI.
-  if (-not (Test-HadesPack)) {
-    $dir = Get-ComfyNodeDir
+  # Node packs. The CLI merge does not need them, but the ComfyUI workflow does,
+  # and RES4LYF is what makes beta57 selectable in SwarmUI.
+  $dir = Get-ComfyNodeDir
+  foreach ($pack in $NodePacks) {
+    if (Test-NodePack $pack.Name) { continue }
     if ($dir -and (Test-CommandExists 'git')) {
-      $dest = Join-Path $dir 'hades-anima-suite'
-      Note 'installing the HaDeS Anima Suite custom node pack'
-      & git clone --depth 1 --quiet https://github.com/Devildonia/HaDeS-Anima-Suite.git $dest
+      $dest = Join-Path $dir $pack.Name
+      Note ("installing node pack {0} ({1})" -f $pack.Name, $pack.Why)
+      & git clone --depth 1 --quiet $pack.Url $dest
       if ($LASTEXITCODE -eq 0) { Ok "node pack -> $dest"; $fixed++ }
-      else { Write-Host 'warning    node pack clone failed (the CLI merge does not need it)' -ForegroundColor Yellow }
+      else { Write-Host ("warning    {0} clone failed" -f $pack.Name) -ForegroundColor Yellow }
     } else {
-      Write-Host 'warning    cannot install the node pack: needs a ComfyUI custom_nodes folder and git' -ForegroundColor Yellow
+      Write-Host 'warning    cannot install node packs: needs a ComfyUI custom_nodes folder and git' -ForegroundColor Yellow
+      break
     }
+  }
+  $packsAdded = @($NodePacks | Where-Object { -not (Test-NodePack $_.Name) }).Count -eq 0
+  if ($packsAdded -and $fixed -gt 0) {
+    Note 'restart SwarmUI so it re-reads the sampler/scheduler list from ComfyUI'
   }
 
   if (-not (Test-CommandExists 'node')) {
