@@ -41,6 +41,7 @@ $jsonOut = if ($env:COMFY_PREFLIGHT_JSON) { $env:COMFY_PREFLIGHT_JSON } else { $
 Write-Host '== comfy-kit preflight =='
 Run-Check 'powershell syntax' 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-PsSyntax.ps1')
 Run-Check 'installer gate'    'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-AnimaInstall.ps1')
+Run-Check 'cli status'        'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TOOLS\image-stack.ps1', 'status')
 Run-Check 'mirror'            'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Mirror.ps1')
 Run-Check 'model install'     'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-ModelInstall.ps1')
 Run-Check 'node pack state'   'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-NodePackState.ps1')
