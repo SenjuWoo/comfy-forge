@@ -1,6 +1,13 @@
 # Changelog
 
-## v0.4.0 — full checkpoints, honest hashes, publish package
+## v0.4.2 — keep the kit generic
+
+A model-release package (`civitai/`) was committed here for a personal
+checkpoint. That was out of scope for a general toolkit and has been removed;
+those materials live outside this repo. The merge fixes from v0.4.0 are
+unaffected.
+
+## v0.4.0 — full checkpoints and honest hashes
 
 ### Fixed
 
@@ -14,12 +21,6 @@
 - **`merge` could claim a link that did not exist.** `New-Item -ItemType HardLink`
   reported success while leaving a separate copy in ComfyUI's tree. The link is
   now made with `mklink /H` and verified with `fsutil hardlink list`.
-
-### Added
-
-- `civitai/` — the publish package for WooMix (Anima) v1.75: model description,
-  version notes, `publish.json` (hashes, sizes, donor weights, settings, credits)
-  and sample renders.
 
 ## v0.3.1 — a merge no longer pretends to be its base
 
