@@ -86,8 +86,9 @@ overwrite an existing model, and deletes only the two files it created - pass
 ```powershell
 ./TESTS/Test-ModelInstall.ps1   # ownership, crash recovery, real HTTP resume
 ./TESTS/Test-NodePackState.ps1  # locked/dirty/drift/foreign/status-failure, clone recovery
-./TESTS/Test-Release.ps1        # VERSION, changelog, STATE and tag agree
+./TESTS/Test-Release.ps1        # VERSION, changelog, STATE and tag agree exactly
 python TESTS/test_workflow_convert.py   # shipped workflow is executable, drift rejected
+python TESTS/test_merge_artifacts.py    # merge output ownership, cleanup, failed copy
 ```
 
 `Test-ModelInstall.ps1` starts `TESTS/fixtures/http_range_server.py` and lets real

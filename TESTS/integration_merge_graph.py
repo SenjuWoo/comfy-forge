@@ -67,6 +67,53 @@ def check_error(entry, what):
     raise SystemExit("FAIL %s reported an error without detail" % what)
 
 
+def cleanup(paths, keep):
+    """Remove only the paths this run created; keep mode just reports them."""
+    for path in paths:
+        if keep:
+            print("note kept     %s" % path)
+            continue
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def expose(saved_path, models_dir, name, copy=shutil.copy2, same_volume=None):
+    """Make the saved merge visible to UNETLoader under a name nobody owns.
+
+    Refuses an existing file outright. A hard link shares the bytes on the same
+    volume; on another volume the copy is a full second checkpoint, so the free
+    space is checked first and a copy that dies midway is removed - it is a
+    truncated file this run created, never a pre-existing model.
+
+    same_volume is only overridden by tests; production derives it from the
+    filesystem so the decision cannot drift from reality.
+    """
+    visible = os.path.join(models_dir, name)
+    if os.path.exists(visible):
+        raise FileExistsError("refusing to overwrite an existing model: %s" % visible)
+    os.makedirs(models_dir, exist_ok=True)
+    if same_volume is None:
+        same_volume = os.stat(saved_path).st_dev == os.stat(models_dir).st_dev
+    if same_volume:
+        os.link(saved_path, visible)
+        return visible, "hard link"
+    need = os.path.getsize(saved_path) / 1e9 * 1.1
+    if shutil.disk_usage(models_dir).free / 1e9 < need:
+        raise OSError("copying %.1f GB needs free space on %s" % (need, models_dir))
+    try:
+        copy(saved_path, visible)
+    except BaseException:
+        if os.path.exists(visible):
+            try:
+                os.unlink(visible)
+            except OSError:
+                pass
+        raise
+    return visible, "copy"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default=os.environ.get("COMFYUI_URL", "http://127.0.0.1:7821"))
@@ -154,45 +201,35 @@ def main():
         return 1
     print("ok   saved     %s (%.2f GB)" % (saved_path, os.path.getsize(saved_path) / 1e9))
 
+    # From here on the saved file exists, so it is ours to remove. Registered
+    # immediately: every failure below has to take it with it.
+    created = [saved_path]
     try:
-        from safetensors import safe_open
-        with safe_open(saved_path, framework="pt") as f:
-            names = list(f.keys())
-    except Exception as e:
-        print("FAIL the saved file is not a loadable safetensors checkpoint: %s" % e)
-        return 1
-    print("ok   tensors   %d, e.g. %s" % (len(names), names[0]))
-
-    # Expose it to UNETLoader under a name that cannot collide with a real model.
-    models_dir = args.models_dir
-    if not models_dir:
-        models_dir = os.path.join(os.path.dirname(os.path.dirname(saved_path)),
-                                  "models", "diffusion_models")
-    visible = os.path.join(models_dir, "comfy-kit-test-%s.safetensors" % run_id)
-    if os.path.exists(visible):
-        print("FAIL refusing to overwrite an existing model at %s" % visible)
-        return 1
-    os.makedirs(models_dir, exist_ok=True)
-    same_volume = os.stat(saved_path).st_dev == os.stat(models_dir).st_dev
-    if not same_volume:
-        need = os.path.getsize(saved_path) / 1e9 * 1.1
-        if shutil.disk_usage(models_dir).free / 1e9 < need:
-            print("FAIL copying %.1f GB needs free space on %s" % (need, models_dir))
+        try:
+            from safetensors import safe_open
+            with safe_open(saved_path, framework="pt") as f:
+                names = list(f.keys())
+        except Exception as e:
+            print("FAIL the saved file is not a loadable safetensors checkpoint: %s" % e)
             return 1
-    try:
-        if same_volume:
-            os.link(saved_path, visible)        # shares the bytes, no extra space
-            how = "hard link"
-        else:
-            shutil.copy2(saved_path, visible)   # costs a second full checkpoint
-            how = "copy"
-    except OSError as e:
-        print("FAIL could not expose the merge to UNETLoader: %s" % e)
-        return 1
-    print("ok   visible   %s (%s)" % (visible, how))
+        print("ok   tensors   %d, e.g. %s" % (len(names), names[0]))
 
-    created = [visible, saved_path]
-    try:
+        models_dir = args.models_dir
+        if not models_dir:
+            models_dir = os.path.join(os.path.dirname(os.path.dirname(saved_path)),
+                                      "models", "diffusion_models")
+        visible_name = "comfy-kit-test-%s.safetensors" % run_id
+        try:
+            visible, how = expose(saved_path, models_dir, visible_name)
+        except FileExistsError as e:
+            print("FAIL %s" % e)
+            return 1
+        except OSError as e:
+            print("FAIL could not expose the merge to UNETLoader: %s" % e)
+            return 1
+        created.append(visible)
+        print("ok   visible   %s (%s)" % (visible, how))
+
         info2 = get(base + "/object_info/UNETLoader", timeout=60)
         unets = info2["UNETLoader"]["input"]["required"]["unet_name"][0]
         if not any(os.path.basename(visible) in str(u) for u in unets):
@@ -255,15 +292,7 @@ def main():
             print("FAIL the reloaded merge renders a flat frame")
             return 1
     finally:
-        for p in created:
-            if args.keep_artifacts:
-                print("note kept     %s" % p)
-            else:
-                # Only the two paths this run created are removed.
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
+        cleanup(created, args.keep_artifacts)
 
     print("MERGE GRAPH: PASS (shipped workflow -> save -> reload -> render)")
     return 0

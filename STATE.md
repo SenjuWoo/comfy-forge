@@ -3,9 +3,9 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.5.1). `v0.5.0` is published but was tagged on a
-tree that still declared `0.5.0-rc.5`; 0.5.1 is the first release whose tag,
-VERSION, changelog and STATE agree, enforced by `TESTS/Test-Release.ps1`.
+**Version** — see `VERSION` (0.5.2). Since 0.5.1 the tag, VERSION, changelog
+heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and the
+`release-verify` workflow that runs on every tag.
 
 **Done**
 
@@ -33,11 +33,20 @@ VERSION, changelog and STATE agree, enforced by `TESTS/Test-Release.ps1`.
   graph to ComfyUI 0.44.0, with 25 HaDeS nodes loaded and `beta57` selecting,
   and returned a non-degenerate 512×512 image.
 
+- The shipped workflow is the one under test: `tests/integration_merge_graph.py`
+  converts `workflows/anima-4way-merge.json` itself (same loaders, weights,
+  scale and scheduler), runs it, and proves save -> reload -> render. Verified:
+  4.18 GB, 685 tensors, render mean 157.0, range 0-255.
+- Merge artifacts are owned: a run refuses to overwrite an existing model,
+  checks free space before a cross-volume copy, and removes every file it
+  created on any failure path (`TESTS/test_merge_artifacts.py`).
+
 **Next**
 
-- `TESTS/integration_merge_graph.py` executes the four-way HaDeS graph through the
-  real API (merge -> save -> reload -> render); it needs the 5.6 GB donor set.
-- Cover the standalone (non-SwarmUI) ComfyUI install path on a clean machine.
+**Unverified** — the standalone (non-SwarmUI) ComfyUI install on a clean
+machine. The code paths exist and are exercised on this machine, but no clean
+environment has been used, so this stays UNVERIFIED rather than claimed.
+PowerShell 7 beyond CI is also unverified; local checks run on 5.1.
 - MCP is proven end to end: `test_mcp_handshake.py --workflow` enqueues through the MCP tool and waits for a rendered image.
 
 **Log** — dtype policy, transactional writer, dependency resolver, safe model
