@@ -62,7 +62,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot          # repo root (this file lives in TOOLS\)
 . (Join-Path $PSScriptRoot 'mirror-lib.ps1')      # hard-link/copy primitives
-$StatePath = Join-Path $env:LOCALAPPDATA 'Ultimate-AI-Starter-Bundle\anima-swarmui.json'
+. (Join-Path $PSScriptRoot 'node-pack-lib.ps1')   # node-pack state + clone guard
+# Standalone by default; a record left by the old bundle path is still honoured.
+$StatePath = Join-Path $env:LOCALAPPDATA 'comfy-kit\anima-swarmui.json'
+if (-not (Test-Path -LiteralPath $StatePath)) {
+  $legacyState = Join-Path $env:LOCALAPPDATA 'Ultimate-AI-Starter-Bundle\anima-swarmui.json'
+  if (Test-Path -LiteralPath $legacyState) { $StatePath = $legacyState }
+}
 
 function Say($Message) { Write-Host $Message }
 function Fail($Message) { Write-Host "error  $Message" -ForegroundColor Red; exit 1 }
@@ -421,63 +427,6 @@ function Get-DependencyLock {
   catch { Write-Host 'warning    config\dependencies.lock.json is not valid JSON' -ForegroundColor Yellow; return $null }
 }
 
-function Get-OriginSlug([string]$Url) {
-  # git@github.com:o/r.git, https://github.com/o/r, https://github.com/o/r.git
-  # and a trailing slash all name the same repository.
-  if (-not $Url) { return $null }
-  $u = $Url.Trim()
-  if ($u -match '^git@([^:]+):(.+?)(?:\.git)?/?$') { return ($matches[1] + '/' + $matches[2]).ToLower() }
-  if ($u -match '^(?:https?|ssh)://(?:[^@/]+@)?([^/]+)/(.+?)(?:\.git)?/?$') { return ($matches[1] + '/' + $matches[2]).ToLower() }
-  return $u.ToLower()
-}
-
-function Get-NodePackState([string]$Dir, $Pin) {
-  # One pack, one honest state. "locked" requires the right repository, the
-  # right commit and no local edits; anything else is named for what it is
-  # rather than rounded up to installed.
-  $dest = Join-Path $Dir $Pin.name
-  if (-not (Test-Path -LiteralPath $dest)) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'missing'; Sha = $null; Pin = $Pin.sha; Detail = $null }
-  }
-  if (-not (Test-CommandExists 'git')) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Pin = $Pin.sha; Detail = 'git missing' }
-  }
-  if (-not (Test-Path -LiteralPath (Join-Path $dest '.git'))) {
-    # A folder can exist without being the repository we pinned (copied pack,
-    # or a checkout that carries somebody else's .git). It cannot be verified.
-    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Pin = $Pin.sha; Detail = 'not a git checkout' }
-  }
-  $origin = (& git -C $dest remote get-url origin 2>$null | Out-String).Trim()
-  $head = (& git -C $dest rev-parse HEAD 2>$null | Out-String).Trim()
-  if ($LASTEXITCODE -ne 0 -or -not $head) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $null; Pin = $Pin.sha; Detail = 'no valid HEAD' }
-  }
-  # The wrong origin is how a ComfyUI commit got recorded as a HaDeS pin.
-  # No origin at all is unverifiable, not locked: nothing proves the repository.
-  if (-not $origin) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'unverifiable'; Sha = $head; Pin = $Pin.sha; Detail = 'no origin remote' }
-  }
-  if ((Get-OriginSlug $origin) -ne (Get-OriginSlug $Pin.url)) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'foreign-repo'; Sha = $head; Pin = $Pin.sha; Detail = $origin }
-  }
-  if ($head -ne $Pin.sha) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'drift'; Sha = $head; Pin = $Pin.sha; Detail = $null }
-  }
-  $dirty = (& git -C $dest status --porcelain 2>$null | Out-String).Trim()
-  if ($dirty) {
-    return [pscustomobject]@{ Name = $Pin.name; State = 'dirty'; Sha = $head; Pin = $Pin.sha; Detail = $null }
-  }
-  return [pscustomobject]@{ Name = $Pin.name; State = 'locked'; Sha = $head; Pin = $Pin.sha; Detail = $null }
-}
-
-function Get-NodePackDrift {
-  # Read-only. Never resets, cleans or checks out anything.
-  $lock = Get-DependencyLock
-  $dir = Get-ComfyNodeDir
-  if (-not $lock -or -not $dir) { return @() }
-  return @($lock.node_packs | ForEach-Object { Get-NodePackState $dir $_ })
-}
-
 function Test-NodePack([string]$Name) {
   # A directory is not an installation. Ask the one state evaluator: only a
   # checkout at the pinned commit, in the pinned repository, counts. `dirty`
@@ -575,6 +524,17 @@ function Install-MissingRequirements {
     if ($dir -and (Test-CommandExists 'git')) {
       $dest = Join-Path $dir $pack.Name
       Note ("installing node pack {0} ({1})" -f $pack.Name, $pack.Why)
+      # A folder with no .git is a failed clone, not a working copy: move it
+      # aside so the clone can proceed. A real checkout is never touched.
+      $occupied = Clear-OccupiedPackDir $dest
+      if ($occupied -eq 'checkout') {
+        Write-Host ("error      {0}: a checkout exists but is not at the pinned commit; inspect or remove it yourself" -f $pack.Name) -ForegroundColor Red
+        $cloneFailures++
+        continue
+      }
+      if ($occupied -like 'aside:*') {
+        Note ("moved an incomplete {0} to {1}" -f $pack.Name, (Split-Path -Leaf $occupied.Substring(6)))
+      }
       # Clone then check out the locked commit: tracking upstream main means two
       # users installing the same release get different node behaviour.
       & git clone --quiet $pack.Url $dest

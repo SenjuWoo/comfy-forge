@@ -1,0 +1,39 @@
+name: release-verify
+
+# A stable release must be provable from its own tag. This runs the same checks
+# as CI plus the release-identity test on the tagged tree, so a tag that still
+# declares an RC version - the v0.5.0 mistake - fails here instead of shipping.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Release identity (tag, VERSION, changelog, state)
+        shell: pwsh
+        run: ./TESTS/Test-Release.ps1
+
+      - name: Merge math
+        run: python TESTS/test_merge.py
+
+      - name: Workflow structure and shipped recipe
+        run: python TESTS/validate_workflows.py
+
+      - name: Shipped workflow converts to an executable graph
+        run: python TESTS/test_workflow_convert.py
+
+      - name: Model install safety (includes real HTTP resume)
+        shell: pwsh
+        run: ./TESTS/Test-ModelInstall.ps1
+
+      - name: Node pack state evaluation
+        shell: pwsh
+        run: ./TESTS/Test-NodePackState.ps1

@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.5.1 - safety patch after v0.5.0
+
+`v0.5.0` shipped with a stable tag on a tree that still declared `0.5.0-rc.5`,
+so the tag, the changelog and STATE.md disagreed. That is fixed here, and the
+three user-data bugs found afterwards are closed.
+
+### Fixed
+
+- **The live merge test could delete a user's model.** It derived a predictable
+  name under `models/diffusion_models`, unlinked whatever was there and linked the
+  new merge over it. Every run now uses a unique name, refuses a collision
+  outright, copies only when the volumes differ (after a free-space check) and
+  removes nothing except the two files it created. `--keep-artifacts` leaves them
+  for inspection.
+- **The installer deleted partial files it did not own.** A `.partial` with a
+  missing or unrecognised `.id` sidecar was treated as garbage. Ownership is now
+  structural: staging lives in `.stage-<identity-hash>/` and only a directory
+  whose `id` matches the expected `sha256|bytes` is resumed or removed. Anything
+  else is left byte-for-byte where it is.
+- **Crash recovery guessed from filenames.** If the destination was missing, the
+  newest `.replaced-*` was moved back - including a historical backup the user had
+  deliberately kept, and it ran before the lock. Recovery now happens inside the
+  lock, from a transaction marker written before the move, and only for the same
+  artifact identity. A complete staged file is published without another network
+  request.
+- **Resume did not work, and a 416 crashed the install.** Staging names changed
+  per run, so `curl -C -` never had a partial. A server that rejects ranges
+  (curl exit 33) is now handled as "restart clean" instead of an error the user
+  cannot act on.
+- **The shipped workflow was never executed by the tests.** The live test rebuilt
+  an equivalent graph in Python with different weights and a bypassed saver. It
+  now converts `workflows/anima-4way-merge.json` itself - the same loaders, the
+  same weights, the same `anima_beta57` scheduler - and the saver is enabled by
+  default so a beginner actually gets a file.
+- **A failing `git status` could read as `locked`.** It is now `unverifiable`,
+  because a status command that did not run proves nothing about the tree.
+- **A failed clone blocked every later install.** A pack folder without `.git` is
+  moved aside (contents preserved) instead of making `git clone` fail forever; a
+  real checkout is never touched or reset.
+- **The state file was written into another tool's folder.** `comfy-kit` now owns
+  `%LOCALAPPDATA%\comfy-kit`, while still reading a record left at the old
+  bundle path.
+
+### Added
+
+- `TESTS/workflow_to_api.py` - converts the shipped UI workflow with explicit
+  widget tables and hard failures on any mismatch.
+- `TESTS/test_workflow_convert.py` - asserts the shipped recipe, the enabled
+  saver and that drift (short widget list, unknown class) is rejected.
+- `TESTS/Test-Release.ps1` - VERSION, top changelog heading, STATE and (on a tag)
+  the tag name must agree; a released tag may not declare an RC version.
+- `.github/workflows/release-verify.yml` - runs those checks on the tagged tree.
+- `TOOLS/node-pack-lib.ps1` + `TESTS/Test-NodePackState.ps1` - real temporary git
+  repositories covering locked, dirty, drift, foreign, no-origin, failing-status
+  and partial-clone states.
+- `TESTS/Test-ModelInstall.ps1` now drives real HTTP against
+  `TESTS/fixtures/http_range_server.py`: Range honoured (206), ignored (200),
+  rejected (416), complete-partial, and user-owned partial preservation.
+
 ## v0.5.0-rc.5 - correctness and honest tests
 
 ### Verified live (RTX 4080 SUPER, ComfyUI 0.44.0, HaDeS 0.4.7)
