@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.1 — a merge no longer pretends to be its base
+
+### Fixed
+
+- A merged checkpoint inherited the base's `workflow` and `prompt` blocks and its
+  `modelspec.hash_sha256`, so the file claimed to be the base model (and the hash
+  no longer matched the weights). Both are dropped; `modelspec.title`,
+  `modelspec.description` and `modelspec.merge` now describe the blend, and the
+  topology facts (`architecture`, `resolution`) are kept.
+- Verified the merge math independently: reconstructed output vs the formula over
+  12 tensors, max deviation `0.0008` (bf16 rounding).
+
 ## v0.3.0 — RES4LYF samplers in SwarmUI
 
 ### Added

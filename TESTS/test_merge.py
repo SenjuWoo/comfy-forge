@@ -55,7 +55,12 @@ def main():
     }
     a = {k: torch.ones_like(v) for k, v in base.items()}
     b = {k: torch.full_like(v, 3) for k, v in base.items()}
-    save_file(base, base_path, metadata={"modelspec.title": "base", "modelspec.architecture": "anima"})
+    save_file(base, base_path, metadata={
+        "modelspec.title": "the-base", "modelspec.architecture": "anima",
+        # Provenance that belongs to the BASE only: a merge must not keep it.
+        "workflow": "{\"nodes\":[]}", "prompt": "{\"1\":{}}",
+        "modelspec.hash_sha256": "0xdeadbeef", "__spacer": "   ",
+    })
     save_file(a, a_path)
     save_file(b, b_path)
 
@@ -82,6 +87,11 @@ def main():
     check(meta.get("modelspec.title") == "test-merge", "title written")
     check(meta.get("modelspec.architecture") == "anima", "base metadata preserved")
     check("task-arithmetic" in meta.get("modelspec.merge", ""), "merge provenance recorded")
+    check("workflow" not in meta and "prompt" not in meta,
+          "base generation graph not inherited")
+    check("modelspec.hash_sha256" not in meta, "stale base hash dropped")
+    check(meta.get("modelspec.description", "").startswith("Task-arithmetic merge"),
+          "merge description written")
 
     # scale 2.0 extrapolates: base(0) + 2 * 1.8 = 3.6
     scaled = os.path.join(tmp, "scaled.safetensors")
