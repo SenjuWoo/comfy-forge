@@ -18,6 +18,7 @@ import math
 import os
 import struct
 import sys
+import uuid
 import time
 
 import torch
@@ -48,6 +49,13 @@ ITEM_SIZE = {
     "BOOL": 1, "U8": 1, "I8": 1, "I16": 2, "U16": 2,
     "I32": 4, "U32": 4, "I64": 8, "U64": 8,
     "F16": 2, "BF16": 2, "F32": 4, "F64": 8,
+    # FP8 and complex appear in newer checkpoints. They are sized so a byte-exact
+    # copy is possible, but they are deliberately absent from NAME_DTYPES: they
+    # are copied, never blended, because averaging them through float32 would be
+    # a silent precision lie. Anything not listed here aborts the merge instead
+    # of producing a header that misdescribes its own bytes.
+    "F8_E4M3": 1, "F8_E5M2": 1, "F8_E4M3FNUZ": 1, "F8_E5M2FNUZ": 1,
+    "F8_E8M0": 1, "C64": 8,
 }
 
 
@@ -128,6 +136,29 @@ def merge_key(method, base, donors, weights, scale):
     return out
 
 
+def verify_checkpoint(path, keys, shapes, dtypes):
+    """Prove the staging file is loadable before it replaces anything.
+
+    The reader is ours, so a header that parses proves little; when the real
+    safetensors library is available it is asked to open the file as well.
+    """
+    header, _ = read_header(path)
+    if set(header) != set(keys):
+        raise RuntimeError("verification: header keys do not match the written set")
+    for key in keys:
+        got = header[key]
+        if tuple(got["shape"]) != tuple(shapes[key]) or got["dtype"] != dtypes[key]:
+            raise RuntimeError(f"verification: '{key}' is {got['dtype']}{got['shape']}, "
+                               f"expected {dtypes[key]}{tuple(shapes[key])}")
+    try:
+        from safetensors import safe_open
+    except ImportError:
+        return
+    with safe_open(path, framework="pt") as f:
+        if set(f.keys()) != set(keys):
+            raise RuntimeError("verification: safetensors disagrees with our header")
+
+
 def write_checkpoint(path, keys, shapes, dtypes, producer, metadata):
     """Stream a checkpoint to disk one tensor at a time (bounded RAM).
 
@@ -144,23 +175,46 @@ def write_checkpoint(path, keys, shapes, dtypes, producer, metadata):
     raw = json.dumps(header, separators=(",", ":")).encode("utf-8")
     raw += b" " * ((-len(raw)) % 8)  # header must be 8-byte aligned
 
-    tmp = path + ".part"
+    # Unique temporary name: two merges writing the same output must not share a
+    # staging file, and a leftover from a killed run must never be reused.
+    tmp = f"{path}.part-{uuid.uuid4().hex[:12]}"
     digest = hashlib.sha256()
     # The length prefix is part of the file, so it is part of the hash: a
     # reported digest that skipped it did not match `sha256sum` (publish bug).
     prefix = struct.pack("<Q", len(raw))
-    with open(tmp, "wb") as f:
-        f.write(prefix)
-        digest.update(prefix)
-        f.write(raw)
-        digest.update(raw)
-        for key in keys:
-            blob = producer(key)
-            if blob is None:
-                raise RuntimeError(f"no value produced for tensor '{key}'")
-            f.write(blob)
-            digest.update(blob)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "wb") as f:
+            f.write(prefix)
+            digest.update(prefix)
+            f.write(raw)
+            digest.update(raw)
+            for key in keys:
+                blob = producer(key)
+                if blob is None:
+                    raise RuntimeError(f"no value produced for tensor '{key}'")
+                if len(blob) != header[key]["data_offsets"][1] - header[key]["data_offsets"][0]:
+                    # A short/long blob silently shifts every later offset, so the
+                    # header would describe a file that does not exist.
+                    raise RuntimeError(
+                        f"tensor '{key}' produced {len(blob)} bytes but the header "
+                        f"declares {header[key]['data_offsets'][1] - header[key]['data_offsets'][0]}")
+                f.write(blob)
+                digest.update(blob)
+        expected = 8 + len(raw) + offset
+        actual = os.path.getsize(tmp)
+        if actual != expected:
+            raise RuntimeError(f"checkpoint size {actual} != header-declared {expected}")
+        # Reopen and let the real parser prove the file is loadable before it
+        # replaces anything the user already had.
+        verify_checkpoint(tmp, keys, shapes, dtypes)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        raise
     return digest.hexdigest(), offset
 
 
@@ -189,7 +243,12 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     def same_file(a, b):
-        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+        # File identity, not path text: two spellings of one file (relative vs
+        # absolute, hard link, symlink, 8.3 name) must be the same file here.
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
     # An input checkpoint is never a valid output target: --force means
     # "overwrite an old merge", not "destroy a model you still need".
@@ -223,14 +282,28 @@ def main(argv=None):
     donor_keys = [donor_index(h) for h in donor_headers]
     base = open_lazy(args.base)
 
-    keys, shapes, dtypes = [], {}, {}
+    keys, shapes, dtypes, can_merge = [], {}, {}, {}
     merged = kept = skipped = nonfloat = 0
     for key, info in base_header.items():
+        if info["dtype"] not in ITEM_SIZE:
+            sys.exit(f"unsupported tensor dtype '{info['dtype']}' on '{key}': "
+                     f"this build cannot copy it byte-exactly, so it refuses rather "
+                     f"than write a corrupt checkpoint")
         keys.append(key)
         shapes[key] = tuple(info["shape"])
-        # Keep the base dtype unless the caller asked for a global conversion.
-        dtypes[key] = {"bf16": "BF16", "fp16": "F16", "fp32": "F32",
-                       None: info["dtype"]}[args.dtype]
+        # `--dtype` applies only to tensors that are genuinely blended. A
+        # protected adapter, a scale_weight, an encoder/VAE tensor or an integer
+        # counter keeps its original dtype even when conversion is requested:
+        # converting them would corrupt the file without saying so.
+        # A tensor that is not present in every donor is carried from the base,
+        # so it is not merged and must not be converted either.
+        mergeable = (not key.endswith(".scale_weight")
+                     and info["dtype"] in NAME_DTYPES
+                     and (args.no_protect_adapter or "llm_adapter" not in key)
+                     and all(canon(key) in dk for dk in donor_keys))
+        can_merge[key] = mergeable
+        dtypes[key] = ({"bf16": "BF16", "fp16": "F16", "fp32": "F32"}[args.dtype]
+                       if (mergeable and args.dtype) else info["dtype"])
         if key.endswith(".scale_weight") or info["dtype"] not in NAME_DTYPES:
             # Integer / bool / scalar tensors cannot be blended meaningfully and
             # are copied verbatim from the base rather than silently coerced.
@@ -290,16 +363,12 @@ def main(argv=None):
 
     def producer(key):
         ck = canon(key)
-        keep = (key.endswith(".scale_weight")
-                or base_header[key]["dtype"] not in NAME_DTYPES
-                or (not args.no_protect_adapter and "llm_adapter" in key)
+        keep = (not can_merge[key]
                 or any(ck not in dk for dk in donor_keys))
         if keep:
-            # Non-float tensors have no conversion target; copy them verbatim.
-            t = get(base, key)
-            if dtypes[key] in NAME_DTYPES:
-                t = t.to(NAME_DTYPES[dtypes[key]])
-            return tensor_bytes(t)
+            # Carried verbatim: no conversion, no blend. Its header dtype was
+            # already set to the original for the same reason.
+            return tensor_bytes(get(base, key))
         values = [get(d, dk[ck]) for d, dk in zip(donors, donor_keys)]
         value = merge_key(args.method, get(base, key), values, weights, args.scale)
         return tensor_bytes(value.to(NAME_DTYPES[dtypes[key]]))

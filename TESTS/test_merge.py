@@ -7,6 +7,7 @@ real model, runs in about a second.
 Run: python TESTS/test_merge.py
 """
 import os
+import json
 import struct
 import sys
 
@@ -242,6 +243,85 @@ def main():
     check("modelspec.author" not in meta and "modelspec.license" not in meta,
           "inherited author/license metadata is dropped")
 
+
+
+    # --- --dtype must not touch tensors it is not allowed to convert ---------
+    dp = os.path.join(tmp, "dtype-base.safetensors")
+    ddp = os.path.join(tmp, "dtype-donor.safetensors")
+    dout = os.path.join(tmp, "dtype-out.safetensors")
+    dtype_base = {
+        "net.blocks.0.w": torch.full((2, 2), 1.0, dtype=torch.bfloat16),
+        "net.blocks.0.scale_weight": torch.tensor([0.25], dtype=torch.float32),
+        "net.blocks.0.steps": torch.tensor([7], dtype=torch.int64),
+        "net.blocks.0.mask": torch.tensor([True, False], dtype=torch.bool),
+        "llm_adapter.w": torch.full((2, 2), 3.0, dtype=torch.bfloat16),
+        "vae.dec.w": torch.full((2, 2), 0.5, dtype=torch.bfloat16),
+    }
+    dtype_donor = {
+        "net.blocks.0.w": torch.full((2, 2), 5.0, dtype=torch.bfloat16),
+        "net.blocks.0.scale_weight": torch.tensor([0.25], dtype=torch.float32),
+        "net.blocks.0.steps": torch.tensor([7], dtype=torch.int64),
+        "net.blocks.0.mask": torch.tensor([True, False], dtype=torch.bool),
+        "llm_adapter.w": torch.full((2, 2), 4.0, dtype=torch.bfloat16),
+    }
+    save_file(dtype_base, dp)
+    save_file(dtype_donor, ddp)
+    merge_anima.main(["--base", dp, "--donor", ddp, "--weights", "1.0",
+                      "--out", dout, "--dtype", "fp16"])
+    got = load_file(dout)
+    check(got["net.blocks.0.w"].dtype == torch.float16, "--dtype fp16 converts a merged tensor")
+    check(got["net.blocks.0.scale_weight"].dtype == torch.float32,
+          "--dtype fp16 leaves scale_weight at its original dtype")
+    check(got["net.blocks.0.steps"].dtype == torch.int64,
+          "--dtype fp16 does not turn an int64 counter into a float")
+    check(int(got["net.blocks.0.steps"][0]) == 7, "int64 counter keeps its value")
+    check(got["net.blocks.0.mask"].dtype == torch.bool,
+          "--dtype fp16 does not turn a bool mask into a float")
+    check(got["llm_adapter.w"].dtype == torch.bfloat16,
+          "protected adapter keeps its dtype under conversion")
+    check(got["vae.dec.w"].dtype == torch.bfloat16,
+          "base-only component keeps its dtype under conversion")
+
+    # --- an unsupported dtype is refused, not guessed ------------------------
+    odd = os.path.join(tmp, "odd.safetensors")
+    with open(odd, "wb") as f:
+        # F4 is a real safetensors dtype but sub-byte: no byte-sized table can
+        # describe it, so it must be refused rather than guessed.
+        hdr = json.dumps({"t": {"dtype": "F4", "shape": [2], "data_offsets": [0, 1]}}).encode()
+        hdr += b" " * ((-len(hdr)) % 8)
+        f.write(struct.pack("<Q", len(hdr)) + hdr + bytes(1))
+    before = os.listdir(tmp)
+    try:
+        merge_anima.main(["--base", odd, "--donor", odd, "--weights", "1.0",
+                          "--out", os.path.join(tmp, "odd-out.safetensors")])
+        check(False, "an unknown tensor dtype aborts instead of writing a bad file")
+    except SystemExit:
+        check(True, "an unknown tensor dtype aborts instead of writing a bad file")
+    check("odd-out.safetensors" not in os.listdir(tmp),
+          "a refused merge leaves no output file")
+
+    # --- a failed verification must not destroy the previous destination -----
+    keep = os.path.join(tmp, "existing.safetensors")
+    save_file({"a": torch.zeros(1)}, keep)
+    original = open(keep, "rb").read()
+    real_verify = merge_anima.verify_checkpoint
+
+    def boom(*a, **k):
+        raise RuntimeError("simulated verification failure")
+
+    merge_anima.verify_checkpoint = boom
+    try:
+        merge_anima.main(["--base", dp, "--donor", ddp, "--weights", "1.0",
+                          "--out", keep, "--force"])
+        check(False, "a failed verification raises")
+    except RuntimeError:
+        check(True, "a failed verification raises")
+    finally:
+        merge_anima.verify_checkpoint = real_verify
+    check(open(keep, "rb").read() == original,
+          "a failed verification leaves the previous checkpoint untouched")
+    leftovers = [f for f in os.listdir(tmp) if ".part-" in f]
+    check(not leftovers, "a failed write cleans up its staging file")
 
     print("MERGE MATH: " + ("PASS" if FAIL == 0 else f"{FAIL} FAILED"))
     return 1 if FAIL else 0
