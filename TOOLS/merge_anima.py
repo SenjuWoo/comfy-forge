@@ -264,8 +264,17 @@ def main(argv=None):
         print(f"dry run    would merge {merged}, keep {kept} adapter, skip {skipped}")
         return 0
 
-    meta = dict(base_meta)
-    meta["modelspec.title"] = args.title or f"{os.path.splitext(os.path.basename(args.out))[0]} (merged)"
+    # Identity: keep the base's topology facts, never its provenance.
+    # `workflow` / `prompt` describe how the BASE was generated (they name the
+    # base's own models), and `modelspec.hash_sha256` belongs to the base's
+    # weights, so both would claim this file is the base. Dropped.
+    DROP = ("workflow", "prompt", "__spacer", "modelspec.hash_sha256")
+    meta = {k: v for k, v in base_meta.items() if k not in DROP}
+    meta["modelspec.title"] = args.title or f"{os.path.splitext(os.path.basename(args.out))[0]}"
+    meta["modelspec.description"] = (
+        f"Task-arithmetic merge of {len(args.donor)} donor(s) over "
+        f"{os.path.basename(args.base)} (weights {', '.join(f'{w:g}' for w in weights)}, "
+        f"scale {args.scale:g}).")
     meta["modelspec.merge"] = json.dumps({
         "method": args.method,
         "scale": args.scale,
