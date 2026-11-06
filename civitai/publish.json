@@ -85,5 +85,42 @@
       "v175_contrast": 64.5
     },
     "verdict": "equal-or-better on anatomy and scene clarity; sharpness within 8% of v1.5; contrast matched"
+  },
+  "publication": {
+    "public": false,
+    "status": "pending-permissions",
+    "reason": "The four donors cannot be hash-matched to any Civitai file (all were re-saved), so their allowDerivatives flag is unknown.",
+    "verified": {
+      "base_woomix_v15": {
+        "civitai_id": 2723359,
+        "allowDerivatives": true,
+        "allowDifferentLicense": true,
+        "allowNoCredit": true
+      },
+      "root_anima_2.9b": {
+        "civitai_id": 2855007,
+        "allowDerivatives": true,
+        "allowDifferentLicense": false,
+        "binding_licence": "CircleStone Labs Non-Commercial License v1.2"
+      }
+    },
+    "blockers": [
+      "Versetility - Diving-Anima_v9.0",
+      "Details - Terra Rising Unity 3.0 - Turbo",
+      "Composition - hentai_studio_quality-000008",
+      "Consistensy - One obsession_animaV5turbo"
+    ],
+    "closest_named_match": {
+      "name": "One obsession_Anima",
+      "civitai_id": 2695493,
+      "allowDerivatives": false
+    },
+    "if_cleared": {
+      "licence": "CircleStone Labs Non-Commercial License v1.2",
+      "commercial_use": false,
+      "credit_required": [
+        "all donors by name"
+      ]
+    }
   }
 }

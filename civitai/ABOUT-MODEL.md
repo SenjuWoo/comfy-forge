@@ -28,10 +28,10 @@ already use, v1.75 is the same model with fewer broken hands.
 
 | Donor | Weight | What it is there for |
 |---|---|---|
-| **Versatility** — Diving-Anima v9.0 | 0.70 | range of subjects and angles; stops every prompt collapsing to the same face |
+| **Versatility** — Diving-Anima v9.0 | 0.70 | range of niche stuff across the whole model |
 | **Details** — Terra Rising Unity 3.0 Turbo | 0.90 | surface density: skin, fabric, hair, environment |
-| **Composition** — hentai_studio_quality | 0.55 | framing and scene structure, most visible with multiple characters |
-| **Consistency** — One obsession animeV5 turbo | 0.45 | same character across seeds |
+| **Composition** — hentai_studio_quality | 0.55 | framing and scene structure |
+| **Consistency** — One obsession animeV5 turbo | 0.45 | best object consistence across seeds |
 
 Task-arithmetic merge over the v1.5 base at **strength 0.30**. Full checkpoint:
 UNET + text encoder + VAE in one file, nothing extra to download.

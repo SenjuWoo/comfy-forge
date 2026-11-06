@@ -1,5 +1,9 @@
 # WooMix (Anima) — v1.75 version notes
 
+> **Do not publish yet.** The four donors could not be verified as merge-permitted
+> (see `PERMISSIONS.md`). Keep the file private until each donor's
+> `allowDerivatives` is confirmed.
+
 Paste this into **About this version** on the version-edit page.
 
 ---
