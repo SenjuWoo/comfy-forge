@@ -307,7 +307,8 @@ if ($httpOk) {
     Check ((Get-FileHash -LiteralPath $t3 -Algorithm SHA256).Hash -eq $bigHash) 'HTTP: the fallback produced the correct bytes'
   } finally { Stop-RangeServer $srv }
 
-  # 4. Already complete and verified: no request at all.
+  # 4. Already complete and verified: no request at all. Proven by injecting a
+  #    downloader that raises, not by reading a log that may not exist yet.
   $srv = Start-RangeServer -File $bigPath
   try {
     $t4 = Join-Path $tmp 'http-complete.safetensors'
@@ -315,10 +316,14 @@ if ($httpOk) {
     New-Item -ItemType Directory -Path $stage4 -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $stage4 'id') -Value ((Get-ModelPartialIdentity -Sha256 $bigHash -Bytes $big.Length)) -NoNewline -Encoding ascii
     [IO.File]::WriteAllBytes((Join-Path $stage4 'data'), $big)
-    $r = Install-ModelFile -Destination $t4 -Url $srv.Url -ExpectedBytes $big.Length -ExpectedSha256 $bigHash
+    $noDownload = {
+      param($Url, $Path, $Resumed)
+      throw 'a verified staged file must not be downloaded again'
+    }
+    $r = Install-ModelFile -Destination $t4 -Url $srv.Url -ExpectedBytes $big.Length `
+      -ExpectedSha256 $bigHash -Downloader $noDownload
     Check ($r.State -eq 'installed') 'HTTP: a complete staged file publishes offline'
-    $asked = if (Test-Path -LiteralPath $srv.Log) { @(Get-Content -LiteralPath $srv.Log).Count } else { 0 }
-    Check ($asked -eq 0) 'HTTP: no request was made for a verified staged file'
+    Check ((Get-FileHash -LiteralPath $t4 -Algorithm SHA256).Hash -eq $bigHash) 'HTTP: the offline publish installs the verified bytes'
   } finally { Stop-RangeServer $srv }
 }
 else {
