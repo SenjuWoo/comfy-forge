@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.2.1 — where the merge actually lands
+
+### Fixed
+
+- A merge was written only to SwarmUI's `Models\Stable-Diffusion\Anima\`, so
+  ComfyUI, the HaDeS workflow and the MCP could not see it. `merge` now hard-links
+  the result into ComfyUI's `models\diffusion_models\` as well (a copy only when
+  the trees are on different volumes). `-NoMirror` opts out.
+- `LICENSE` carried a trailing note that made GitHub classify the repo as
+  `NOASSERTION`. It is plain MIT again; the third-party note lives in the README.
+
+### Repo
+
+- `main` is protected: the `test` check is required, force pushes and branch
+  deletion are blocked, and conversation resolution is on.
+- Secret scanning, push protection and Dependabot security updates enabled.
+
 ## v0.2.0 — comfy-kit
 
 Renamed from `uabs-image-stack`, and the four-way merge now works on real files.
