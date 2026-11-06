@@ -53,6 +53,7 @@ param(
   [switch]$IncludeOptional,
   [switch]$Force,
   [switch]$Write,
+  [switch]$NoMirror,
   [string]$Agent = 'hermes',
   [int]$Port = 0
 )
@@ -224,6 +225,19 @@ function Show-Status {
 # reports them, `install` fixes every one it can without changing an existing
 # ComfyUI install's own packages.
 # ---------------------------------------------------------------------------
+function Get-ComfyModelDir {
+  # ComfyUI's own model tree. SwarmUI keeps Models\Stable-Diffusion; a raw
+  # ComfyUI install (and the HaDeS workflow) reads this folder instead, so a
+  # merge has to exist in both places to be pickable everywhere.
+  $candidates = @()
+  $swarm = Get-SwarmRoot
+  if ($swarm) { $candidates += (Join-Path $swarm 'dlbackend\comfy\ComfyUI\models\diffusion_models') }
+  $comfy = Get-ComfyRoot
+  if ($comfy) { $candidates += (Join-Path $comfy 'models\diffusion_models') }
+  foreach ($c in $candidates) { if (Test-Path -LiteralPath $c) { return $c } }
+  return $null
+}
+
 function Get-ComfyNodeDir {
   $swarm = Get-SwarmRoot
   if (-not $swarm) { return $null }
@@ -444,6 +458,24 @@ function Invoke-Merge {
     $exit = $LASTEXITCODE
   }
   if ($exit -ne 0) { Fail "merge failed (python exit $exit)" }
+
+  # Make the merge visible in ComfyUI too. A hard link costs no disk space and
+  # keeps both trees in sync; a cross-volume fallback copies the file.
+  if (-not $NoMirror) {
+    $comfyDir = Get-ComfyModelDir
+    if ($comfyDir) {
+      $mirror = Join-Path $comfyDir (Split-Path -Leaf $Out)
+      try {
+        if (Test-Path -LiteralPath $mirror) { Remove-Item -LiteralPath $mirror -Force }
+        New-Item -ItemType HardLink -Path $mirror -Target $Out -ErrorAction Stop | Out-Null
+        Ok "linked into ComfyUI: $mirror"
+      }
+      catch {
+        Copy-Item -LiteralPath $Out -Destination $mirror -Force
+        Ok "copied into ComfyUI: $mirror (different volume)"
+      }
+    }
+  }
 
   if ($swarm -and $Out.StartsWith($swarm, [StringComparison]::OrdinalIgnoreCase)) {
     Note 'refreshing the SwarmUI model list so the merge appears in the UI'

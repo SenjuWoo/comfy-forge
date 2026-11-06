@@ -71,6 +71,11 @@ powershell -File TOOLS\image-stack.ps1 merge `
   -Weights 0.85,0.75,0.60,0.50
 ```
 
+The finished file lands in **both** model trees — SwarmUI's
+`Models\Stable-Diffusion\Anima\` and ComfyUI's
+`dlbackend\comfy\ComfyUI\models\diffusion_models\` — linked, not copied, so it
+costs no extra disk and shows up in the node editor and the MCP too.
+
 The formula matches the ComfyUI node:
 
 ```
