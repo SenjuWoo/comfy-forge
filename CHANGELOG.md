@@ -1,5 +1,66 @@
 # Changelog
 
+## v0.5.0-rc.3 - third candidate
+
+### Fixed
+
+- **`--dtype` rewrote tensors it must not touch.** The requested dtype was
+  assigned to every tensor, so `--dtype fp16` turned an int64 counter, a bool
+  mask, a `.scale_weight`, a protected adapter or an encoder tensor into FP16.
+  Conversion now applies only to tensors that are actually blended; everything
+  else keeps its original dtype and bytes. Non-float tensors are never converted.
+- **Unknown safetensors dtypes crashed with `KeyError`** or would have been
+  guessed. FP8 and complex dtypes are now sized for byte-exact copying, and any
+  dtype this build cannot describe aborts the merge before writing anything.
+- **The writer replaced the destination before proving the file was loadable.**
+  It now stages to a unique temporary file, checks every tensor's byte length
+  against the header, reopens the result with the safetensors library, and only
+  then publishes. A failed verification leaves an existing destination intact and
+  cleans up its staging file.
+- **Input/output identity was compared as path text.** It now uses real file
+  identity, so relative paths, hard links and symlinks are caught.
+- **HaDeS declares its dependencies in `pyproject.toml`**, which the installer
+  never read: it looked only for `requirements.txt` and found nothing. A new
+  resolver (`TOOLS/check_deps.py`) reads both, keeps version constraints, reports
+  directives it cannot replay instead of dropping them, and is covered by tests.
+- **`Find-Python` returned the bare name `python`**, which `Test-Path` cannot
+  test, so dependency work silently skipped. It now returns a verified executable
+  path, and refuses to fall back to the global interpreter when a frontend exists
+  without one.
+- **A model download could destroy an existing checkpoint** whose filename
+  matched the manifest but whose bytes did not. The installer now keeps it as a
+  `.replaced-*` backup and restores it if publication fails.
+- **`image-stack.ps1` contained two copies of every function**, the second older
+  than the first: PowerShell executed the stale one, so new code was dead.
+  Removed 281 duplicate lines.
+
+### Added
+
+- `config/dependencies.lock.json` pins HaDeS and RES4LYF by commit, with the
+  node classes they provide. `install` checks out the pin; `status` reports drift
+  and never resets a checkout.
+- `TESTS/integration_live.py` submits a real API-format graph to a live ComfyUI,
+  waits for completion, downloads the image and rejects a flat/black frame.
+- `docs/TESTING.md`, `docs/UPDATING.md`, `TESTS/Test-ModelInstall.ps1`,
+  `TOOLS/check_deps.py --self-test`, and PowerShell 5.1 steps in CI.
+
+### Verified live (RTX 4080 SUPER, ComfyUI 0.44.0)
+
+```
+backend     ComfyUI 0.44.0
+nodes       1432 registered
+HaDeS       25 nodes, e.g. HaDeSAnimaModelBlockMerger
+checkpoint  Anima\woomixAnima_v175.safetensors
+sampler     euler / beta57
+image       comfy-kit-integration_00001_.png (359817 bytes)
+pixels      512x512 mean=119.4 range=0-255
+INTEGRATION: PASS
+```
+
+This is the first time the shipped path is proven to execute: HaDeS had never
+registered on the live backend before this round (a stale process was serving
+the old node list).
+
 ## v0.5.0-rc.2 - second candidate
 
 ### Fixed

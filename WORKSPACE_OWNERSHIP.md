@@ -4,7 +4,7 @@
 - Project name: `comfy-kit` (formerly `uabs-image-stack`).
 - Active source: `.` — the repo root is the source. No version-stamped snapshots; Git tags carry releases.
 - Versioning: SemVer tags (`v0.x.y`), `CHANGELOG.md` is the record.
-- Repository: local Git repo on branch `main`; no remote until the operator asks.
+- Repository: `https://github.com/SenjuWoo/comfy-kit` (public, MIT). `main` is protected: every change lands through a pull request with the `test` check green; force pushes and deletions are blocked.
 - Publication intent: this repo is intended as a public starter pack for new image-generation users (Anima-focused). Publish only when the operator asks.
 - Read-only inputs: the installed frontend (`S:\Misc\SwarmUI` on the build machine) and its Models folder. This repo reads them and writes only into them when explicitly asked (`install`, `merge` output, `mcp -Write`).
 - State/output: `out/` and `artifacts/` are local and git-ignored; model weights are never committed.

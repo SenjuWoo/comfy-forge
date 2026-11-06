@@ -44,12 +44,19 @@ first one becomes the **anchor** for this set — see the lineage rule below:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 merge `
+  -Base "S:\models\Versetility - Diving-Anima_v9.0.safetensors" `
   -Donors "S:\models\Versetility - Diving-Anima_v9.0.safetensors",
           "S:\models\Details - Terra Rising Unity 3.0 - Turbo.safetensors",
           "S:\models\Composition - hentai_studio_quality-000008.safetensors",
           "S:\models\Consistensy - One obsession_animaV5turbo.safetensors" `
-  -Weights 0.85,0.75,0.60,0.50 -Scale 1.0
+  -Weights 0.85,0.75,0.60,0.50 -Scale 1.0 -AcceptFallbackAnchor
 ```
+
+Donor #1 doubles as the anchor here because these four checkpoints share a
+lineage but their true common ancestor is not on disk. It keeps its 0.85 weight,
+so the blend still comes out 31.5 / 27.8 / 22.2 / 18.5 %. Drop
+`-AcceptFallbackAnchor` and the command stops with an explanation instead of
+quietly re-weighting the recipe.
 
 Without `-Out`, the file is written to
 `<SwarmUI>\Models\Stable-Diffusion\Anima\Anima-4way-<timestamp>.safetensors` and
@@ -117,7 +124,7 @@ is broken. Check the block count first.
 | `--method` | Formula | Use |
 |---|---|---|
 | `task-arithmetic` (default) | `base + scale · Σ wᵢ(θᵢ − base) / Σ wᵢ` | blend fine-tune differences; what the graph uses |
-| `weighted-sum` | `Σ wᵢθᵢ / Σ wᵢ` | plain average of the whole weights, no base needed |
+| `weighted-sum` | `scale · Σ wᵢθᵢ / Σ wᵢ` | scaled average of the whole weights; `--base` is still required because the output carries the base's non-merged tensors |
 
 `density` / kept-fraction from the node is not exposed here: it only affects TIES
 and DARE, and Task Arithmetic ignores it.

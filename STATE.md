@@ -3,28 +3,44 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.5.0-rc.2). rc.1 is published; rc.2 is the branch
-under review. `v0.4.2` stays the latest stable until the integration gaps below
-close.
-
-**Last known good** — v0.4.2.
+**Version** — see `VERSION` (0.5.0-rc.3); rc.1 and rc.2 are published. `v0.4.2` is the last *published stable*; it is not a correctness
+reference — it contains the donor-dropping four-way fallback fixed in rc.1 and
+should not be used for merges.
 
 **Done**
 
 - Four-way merge keeps every donor's weight when an anchor donor substitutes for
   a missing ancestor; shares are 31.48/27.78/22.22/18.52 at scale 1.
-- Mirror verified by Windows file identity, not by file name; a merge whose
-  output already sits in the ComfyUI tree is left alone instead of deleted.
-- Installer reads node-pack `requirements.txt` and installs missing
-  distributions into the frontend's own interpreter.
-- Shipped workflow no longer pairs a 40-block base with 28-block donors;
-  `TESTS/validate_workflows.py` fails the build if it ever does again.
+- `--dtype` converts only tensors that are actually blended: integer counters,
+  bool masks, `.scale_weight`, protected adapters and encoder/VAE tensors keep
+  their original dtype. Unsupported safetensors dtypes abort instead of being
+  guessed. Verified by 56 assertions in `TESTS/test_merge.py`.
+- Merge writes to a unique staging file, validates every tensor's byte length,
+  reopens the file with the safetensors library, and only then publishes it; a
+  failed verification leaves an existing destination untouched.
+- Mirror verified by Windows file identity, not by name; copies verified by
+  SHA-256; a failed replacement restores the file it displaced.
+- Node-pack dependencies resolve from `requirements.txt` **and** `pyproject.toml`
+  (HaDeS ships only the latter), constraints preserved, pip called with argv,
+  torch never replaced. `TOOLS/check_deps.py`.
+- Model downloads keep an existing mismatched checkpoint as a `.replaced-*`
+  backup and restore it if publication fails (`TESTS/Test-ModelInstall.ps1`).
+- Node packs are pinned by commit in `config/dependencies.lock.json`; `status`
+  reports drift and never resets a checkout.
+- Shipped workflows validate structurally, and block-count lineage is checked
+  when models are present (UNVERIFIED otherwise).
+- Live integration proven: `TESTS/integration_live.py` submitted an API-format
+  graph to ComfyUI 0.44.0, with 25 HaDeS nodes loaded and `beta57` selecting,
+  and returned a non-degenerate 512×512 image.
 
 **Next**
 
-- Run the HaDeS save node enabled to prove a UI-driven save reloads (CLI path is
-  already proven).
-- MCP: prove one real backend operation, not just a handshake.
+- Enable the HaDeS save node in the UI graph and prove a UI-driven save reloads.
+- Cover the standalone (non-SwarmUI) ComfyUI install path on a clean machine.
+- MCP `enqueue_workflow`: only `get_system_stats` is proven over MCP so far.
 
-**Log** — merge fixes, mirror rewrite, installer deps, workflow validator.
+**Log** — dtype policy, transactional writer, dependency resolver, safe model
+publish, pinned node packs, live integration test.
 **Build/run** — `TOOLS/image-stack.ps1 <status|install|presets|generate|merge|mcp>`.
+**Live test** — `python TESTS/integration_live.py --url http://127.0.0.1:7821`
+(use the backend's actual port; SwarmUI increments it when one is busy).

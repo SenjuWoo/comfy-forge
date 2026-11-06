@@ -287,6 +287,47 @@ function Save-UabsModelFile {
   return $Destination
 }
 
+function Save-UabsModelFileSafely {
+  # Publish a verified download without destroying a file that was already
+  # there. A checkpoint whose name matches the manifest but whose bytes do not
+  # may be the user's own merge or an older build - it gets a backup, never a
+  # silent overwrite, and it is put back if publication fails.
+  param(
+    [Parameter(Mandatory)] [string]$Destination,
+    [Parameter(Mandatory)] [string]$Url,
+    [Parameter(Mandatory)] [long]$ExpectedBytes,
+    [Parameter(Mandatory)] [string]$ExpectedSha256
+  )
+  $backup = $null
+  if (Test-Path -LiteralPath $Destination) {
+    if (Test-UabsFileHash -Path $Destination -Sha256 $ExpectedSha256) {
+      Write-UabsOk ('already present and verified ' + $Destination)
+      return $Destination
+    }
+    $backup = $Destination + '.replaced-' + (Get-Date -Format 'yyyyMMdd-HHmmss') +
+              '-' + ([guid]::NewGuid().ToString('N').Substring(0, 6))
+    Move-Item -LiteralPath $Destination -Destination $backup -Force
+    Write-UabsNote ('existing file kept as ' + (Split-Path -Leaf $backup))
+  }
+  try {
+    $part = $Destination + '.part'
+    Save-UabsModelFile -Destination $part -Url $Url -ExpectedBytes $ExpectedBytes -ExpectedSha256 $ExpectedSha256
+    Move-Item -LiteralPath $part -Destination $Destination -Force
+    Write-UabsOk ('verified and installed ' + $Destination)
+    if ($backup) { Write-UabsNote ('previous file retained: ' + $backup) }
+    return $Destination
+  } catch {
+    if (Test-Path -LiteralPath $Destination) {
+      Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+    }
+    if ($backup -and (Test-Path -LiteralPath $backup)) {
+      Move-Item -LiteralPath $backup -Destination $Destination -Force
+      Write-UabsNote ('restored the previous file after a failed install')
+    }
+    throw
+  }
+}
+
 function Get-UabsPreviousFrontends {
   $path = Join-Path (Get-UabsStateRoot) 'anima-swarmui.json'
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @() }
@@ -368,7 +409,7 @@ function Install-UabsAnimaIntoFrontend {
         Write-UabsInfo ($entry.filename + ' - already present, verified')
         continue
       }
-      if ($existing) { Write-UabsWarn ($entry.filename + ' present but hash differs; replacing.') }
+      if ($existing) { Write-UabsWarn ($entry.filename + ' present but hash differs; the existing file will be kept as a backup.') }
     }
 
     try {
@@ -379,8 +420,9 @@ function Install-UabsAnimaIntoFrontend {
         $row.status = 'not downloaded (offline)'
         Write-UabsInfo ($entry.filename + ' - missing; offline mode, not downloaded')
       } else {
-        [void](Save-UabsModelFile -Url ([string]$entry.url) -Destination $dest `
-          -ExpectedBytes ([long]$entry.bytes) -ExpectedSha256 ([string]$entry.sha256) -Offline:$Offline)
+        # Safe publish: a filename match is not proof the file is ours.
+        [void](Save-UabsModelFileSafely -Url ([string]$entry.url) -Destination $dest `
+          -ExpectedBytes ([long]$entry.bytes) -ExpectedSha256 ([string]$entry.sha256))
         $row.status = 'installed and verified'
         Set-UabsCachedHash -Path $dest -Sha256 ([string]$entry.sha256) -Cache $Cache
       }

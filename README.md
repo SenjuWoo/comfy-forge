@@ -153,7 +153,7 @@ Python 3.12 embedded. Version: see `VERSION` (single source of truth).
 | Preset render | real 1024×1024 PNG, 27 s at 28 steps |
 | Four-way merge | merged and rendered — the image at the top of this page |
 | Self-merge | bit-identical to the base, and renders |
-| Merge math | 18 assertions: weights, scale, adapter protection, dtypes, namespaces, refusals |
+| Merge math | 56 assertions: weights, scale, adapter protection, dtypes, namespaces, refusals, dtype conversion |
 | Lineage gate | 40-block base + 28-block donor refused, never silently blended |
 | MCP handshake | `comfyui-mcp@0.52.206`, `list_tools` / `describe_tool` / `call_tool` |
 

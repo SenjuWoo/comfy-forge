@@ -163,6 +163,9 @@ function Get-ComfyUIPort {
 }
 
 function Find-Python {
+  # Returns a verified executable path, or $null. A bare name like 'python' is
+  # not a path, so Test-Path on it is always false and every caller that used
+  # one silently skipped its work; resolve through Get-Command instead.
   $swarm = Get-SwarmRoot
   $candidates = @()
   if ($swarm) {
@@ -175,7 +178,16 @@ function Find-Python {
     $candidates += (Join-Path (Split-Path -Parent $comfy) 'python_embeded\python.exe')
   }
   foreach ($c in $candidates) { if (Test-Path -LiteralPath $c) { return $c } }
-  return 'python'   # last resort: whatever is on PATH
+
+  # No frontend interpreter. A ComfyUI root that exists without a python is a
+  # broken install, not an invitation to use the user's global interpreter.
+  if ($comfy) {
+    Write-Host "warning    $comfy has no python interpreter; not falling back to the global python" -ForegroundColor Yellow
+    return $null
+  }
+  $cmd = Get-Command python -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  return $null
 }
 
 function Read-Presets {
@@ -282,76 +294,115 @@ $NodePacks = @(
      Why  = 'extra samplers/schedulers: beta57, res_2s, rk_beta, bong_tangent' }
 )
 
-function Get-NodePackRequirements([string]$PackName) {
-  # Returns pip requirement lines verbatim ("numpy>=1.26.4"), never bare names:
-  # dropping the constraint turns a version check into a presence check.
-  $dir = Get-ComfyNodeDir
-  if (-not $dir) { return @() }
-  $req = Join-Path $dir (Join-Path $PackName 'requirements.txt')
-  if (-not (Test-Path -LiteralPath $req)) { return @() }
-  return @(Get-Content -LiteralPath $req |
-           ForEach-Object { $_.Trim() } |
-           Where-Object { $_ -and -not $_.StartsWith('#') -and $_ -notmatch '^(-e|--|git\+)' })
-}
-
-function Get-RequirementName([string]$Req) {
-  ($Req -split '[<>=!~;\[ ]')[0].Trim()
-}
-
-function Test-PythonRequirement([string]$Python, [string]$Req) {
-  # Let pip decide: --dry-run --no-index resolves the spec against what is
-  # installed without touching the network, so "numpy>=1.26.4" is honoured.
-  $out = & $Python -m pip install --dry-run --no-index --no-deps --quiet --disable-pip-version-check $Req 2>&1
-  if ($LASTEXITCODE -eq 0) { return $true }
-  $text = ($out | Out-String)
-  if ($text -match 'no matching distribution|Could not find a version') { return $false }
-  # Older pip has no --dry-run: fall back to presence + import.
-  $name = Get-RequirementName $Req
-  $null = & cmd.exe /c "`"$Python`" -c `"import importlib.metadata as m,sys;m.version(sys.argv[1])`" $name 2>nul"
-  return ($LASTEXITCODE -eq 0)
+function Get-PackDependencyReport([string]$Python, [string]$NodeDir) {
+  # One resolver reads requirements.txt AND pyproject.toml (HaDeS ships only the
+  # latter, which the old requirements.txt-only parser never saw). Native stderr
+  # is captured without EAP=Stop turning an expected pip message into a crash.
+  $script = Join-Path $Root 'TOOLS\check_deps.py'
+  $packs = @($NodePacks | ForEach-Object { Join-Path $NodeDir $_.Name } |
+             Where-Object { Test-Path -LiteralPath $_ })
+  if ($packs.Count -eq 0) { return @() }
+  $argv = @($script)
+  foreach ($p in $packs) { $argv += @('--pack', $p) }
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $raw = & $Python @argv 2>&1 | Out-String
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+  if ($code -ne 0) {
+    Write-Host ("error      dependency resolution failed for {0}" -f $NodeDir) -ForegroundColor Red
+    return $null
+  }
+  return ($raw | ConvertFrom-Json)
 }
 
 function Install-NodePackDeps([string]$Python) {
-  # Installs every requirement through argv (never a shell string) into the
-  # frontend's own interpreter. torch is never touched: replacing a working CUDA
-  # build is worse than a missing optional dependency.
-  $failed = 0
-  foreach ($pack in $NodePacks) {
-    if (-not (Test-NodePack $pack.Name)) { continue }
-    $reqs = @(Get-NodePackRequirements $pack.Name)
-    if ($reqs.Count -eq 0) { continue }
-    $missing = @($reqs | Where-Object { -not (Test-PythonRequirement $Python $_) })
-    if ($missing.Count -eq 0) { continue }
+  # Installs only what the resolver reports missing, as argv (never a shell
+  # string), into the frontend's own interpreter. torch is never replaced.
+  $nodeDir = Get-ComfyNodeDir
+  if (-not $nodeDir) { return 0 }
+  $report = Get-PackDependencyReport $Python $nodeDir
+  if ($null -eq $report) { return 1 }
+
+  $failures = 0
+  foreach ($pack in $report) {
+    if (-not $pack.present) { continue }
+    foreach ($u in @($pack.unsupported)) {
+      Write-Host ("note       {0}: cannot replay '{1}' - install it manually" -f $pack.pack, $u) -ForegroundColor Yellow
+    }
+    $missing = @($pack.missing)
+    if ($missing.Count -eq 0) {
+      if ($pack.requirements.Count -gt 0) { Ok ("deps verified -> {0}" -f $pack.pack) }
+      continue
+    }
 
     $safe = @()
     foreach ($r in $missing) {
-      $name = (Get-RequirementName $r).ToLower()
+      $name = (($r -split '[<>=!~;\[ ]')[0]).Trim().ToLower()
       if ($name -in @('torch', 'torchvision', 'torchaudio', 'xformers')) {
-        Write-Host ("warning    {0} asks for {1}; keeping the installed CUDA build" -f $pack.Name, $r) -ForegroundColor Yellow
+        # A node pack that wants a different torch build is a compatibility
+        # question, not something the installer may decide alone.
+        Write-Host ("blocked    {0} requires {1}; the installed CUDA torch is kept. Upgrade it yourself if the node needs it." -f $pack.pack, $r) -ForegroundColor Red
+        $failures++
         continue
       }
       $safe += $r
     }
     if ($safe.Count -eq 0) { continue }
 
-    Note ("installing {0} dependencies: {1}" -f $pack.Name, ($safe -join ', '))
-    $argv = @('-m', 'pip', 'install', '--quiet', '--disable-pip-version-check') + $safe
-    & $Python @argv
+    Note ("installing for {0}: {1}" -f $pack.pack, ($safe -join ', '))
+    & $Python @('-m', 'pip', 'install', '--quiet', '--disable-pip-version-check') @safe
     if ($LASTEXITCODE -ne 0) {
-      Write-Host ("error      pip failed for {0}" -f $pack.Name) -ForegroundColor Red
-      $failed++
+      Write-Host ("error      pip install failed for {0}" -f $pack.pack) -ForegroundColor Red
+      $failures++
       continue
     }
-    # Verify by re-checking the constraint, then by importing where we can.
-    $still = @($safe | Where-Object { -not (Test-PythonRequirement $Python $_) })
+    $after = Get-PackDependencyReport $Python $nodeDir
+    $still = @(($after | Where-Object { $_.pack -eq $pack.pack }).missing)
     if ($still.Count -gt 0) {
       Write-Host ("error      still unsatisfied after install: {0}" -f ($still -join ', ')) -ForegroundColor Red
-      $failed++
+      $failures++
     } else {
-      Ok ("deps -> {0}" -f ($safe -join ', '))
+      Ok ("deps installed -> {0}" -f $pack.pack)
     }
   }
-  return $failed
+  return $failures
+}
+
+# ---------------------------------------------------------------------------
+# Discovery - read what the installer already recorded instead of re-scanning
+# every drive. The installer owns detection; this only reads its result.
+# ---------------------------------------------------------------------------
+function Get-DependencyLock {
+  # The tested revision of each external pack. Absent file means "unpinned", and
+  # callers must say so rather than pretending the install is reproducible.
+  $path = Join-Path $Root 'config\dependencies.lock.json'
+  if (-not (Test-Path -LiteralPath $path)) { return $null }
+  try { return (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json) }
+  catch { Write-Host 'warning    config\dependencies.lock.json is not valid JSON' -ForegroundColor Yellow; return $null }
+}
+
+function Get-NodePackDrift {
+  # Compare what is installed with what is pinned. Read-only: a dirty or
+  # divergent checkout is reported, never reset or overwritten.
+  $lock = Get-DependencyLock
+  $dir = Get-ComfyNodeDir
+  if (-not $lock -or -not $dir) { return @() }
+  $rows = @()
+  foreach ($pin in $lock.node_packs) {
+    $dest = Join-Path $dir $pin.name
+    if (-not (Test-Path -LiteralPath $dest)) {
+      $rows += [pscustomobject]@{ Name = $pin.name; State = 'missing'; Sha = $null }
+      continue
+    }
+    $head = (& git -C $dest rev-parse HEAD 2>$null)
+    $state = if ($head -eq $pin.sha) { 'locked' } else { 'drift' }
+    $rows += [pscustomobject]@{ Name = $pin.name; State = $state; Sha = "$head".Trim() }
+  }
+  return $rows
 }
 
 function Test-NodePack([string]$Name) {
@@ -374,7 +425,16 @@ function Show-Requirements {
   $py = Find-Python
   $rows = @()
 
-  $rows += @{ Name = 'python'; Ok = (Test-Path -LiteralPath $py); Detail = $py;
+  # Find-Python returns $null when no interpreter exists, and Test-Path on
+  # $null throws, so the check has to name the condition explicitly.
+  foreach ($p in @(Get-NodePackDrift)) {
+    $msg = '{0} {1}' -f $p.Name, $p.State
+    if ($p.State -eq 'locked') { Ok ('packs    ' + $msg) }
+    elseif ($p.State -eq 'drift') { Note ('packs    ' + $msg + ' (' + $p.Sha.Substring(0,7) + ' vs lock)') }
+    else { Note ('packs    ' + $msg) }
+  }
+  $rows += @{ Name = 'python'; Ok = [bool]($py -and (Test-Path -LiteralPath $py));
+              Detail = $(if ($py) { $py } else { 'not found' });
               Fix = 'install ComfyUI or put python on PATH' }
   $rows += @{ Name = 'merge deps'; Ok = (Test-PythonDeps $py); Detail = 'torch, safetensors, numpy';
               Fix = 'image-stack.ps1 install' }
@@ -399,7 +459,7 @@ function Install-MissingRequirements {
   # Python merge dependencies. torch is never replaced: ComfyUI ships a CUDA
   # build that must match its own setup, so only the small modules are added.
   $py = Find-Python
-  if (Test-Path -LiteralPath $py) {
+  if ($py -and (Test-Path -LiteralPath $py)) {
     $missing = @()
     foreach ($mod in @('torch', 'safetensors', 'numpy')) {
       & $py -c "import $mod" 2>$null | Out-Null
@@ -426,8 +486,25 @@ function Install-MissingRequirements {
     if ($dir -and (Test-CommandExists 'git')) {
       $dest = Join-Path $dir $pack.Name
       Note ("installing node pack {0} ({1})" -f $pack.Name, $pack.Why)
-      & git clone --depth 1 --quiet $pack.Url $dest
-      if ($LASTEXITCODE -eq 0) { Ok "node pack -> $dest"; $fixed++ }
+      # Clone then check out the locked commit: tracking upstream main means two
+      # users installing the same release get different node behaviour.
+      & git clone --quiet $pack.Url $dest
+      if ($LASTEXITCODE -eq 0) {
+        $lock = Get-DependencyLock
+        $pin = $null
+        if ($lock) { $pin = @($lock.node_packs | Where-Object { $_.name -eq $pack.Name })[0] }
+        if ($pin -and $pin.sha) {
+          & git -C $dest checkout --quiet $pin.sha
+          if ($LASTEXITCODE -eq 0) {
+            Ok ("node pack -> {0} @ {1}" -f $dest, $pin.sha.Substring(0, 7))
+          } else {
+            Write-Host ("warning    {0} cloned but could not check out {1}" -f $pack.Name, $pin.sha) -ForegroundColor Yellow
+          }
+        } else {
+          Ok "node pack -> $dest (unpinned: no lock entry)"
+        }
+        $fixed++
+      }
       else { Write-Host ("warning    {0} clone failed" -f $pack.Name) -ForegroundColor Yellow }
     } else {
       Write-Host 'warning    cannot install node packs: needs a ComfyUI custom_nodes folder and git' -ForegroundColor Yellow

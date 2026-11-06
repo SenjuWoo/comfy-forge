@@ -34,6 +34,19 @@ jobs:
       - name: Merge math
         run: python TESTS/test_merge.py
 
+      - name: Model install safety (backup, restore, fault injection)
+        shell: powershell
+        run: ./TESTS/Test-ModelInstall.ps1
+
+      - name: Dependency resolver self-test
+        run: python TOOLS/check_deps.py --self-test
+
+      - name: PowerShell 5.1 runtime tests
+        shell: powershell
+        run: |
+          ./TESTS/Test-Mirror.ps1
+          ./TESTS/Test-Version.ps1
+
       - name: Mirror safety (link identity, collisions, cross-volume)
         shell: pwsh
         run: ./TESTS/Test-Mirror.ps1
