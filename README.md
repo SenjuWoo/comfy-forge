@@ -44,8 +44,8 @@ verifies each file by SHA-256, so re-running is cheap and safe.
 | Command | What it does |
 |---|---|
 | `status` | Frontend, models, server, ComfyUI port, and every requirement with a fix line |
-| `install` | Models **plus** the Anima node pack **plus** the python merge modules — whatever is missing |
-| `presets` | List the 39 presets; `-Name "<preset>"` prints one preset's settings |
+| `install` | Models, both node packs (HaDeS + RES4LYF) and the python merge modules — whatever is missing |
+| `presets` | List the presets; `-Name "<preset>"` prints one preset's settings |
 | `generate` | Render through SwarmUI's API into `out\` |
 | `merge` | Write a merged `.safetensors` and refresh SwarmUI's model list |
 | `mcp` | Print a ready client config for the ComfyUI MCP server |
@@ -54,7 +54,7 @@ verifies each file by SHA-256, so re-running is cheap and safe.
 
 | | |
 |---|---|
-| **39 presets** | Anima, FLUX.1/2, Krea 2, SDXL, Z-Image — shot parameters only, no workflow graph |
+| **42 presets** | Anima, FLUX.1/2, Krea 2, SDXL, Z-Image — shot parameters only, no workflow graph |
 | **Anima installer** | 2.9B bf16 + Qwen3 0.6B encoder + Qwen Image VAE, pinned by hash |
 | **Merge tool** | Task arithmetic over up to four checkpoints, streamed write, provenance in metadata |
 | **ComfyUI graph** | `workflows/anima-4way-merge.json` for the node editor (`install` fetches the node pack) |
@@ -98,6 +98,17 @@ unrelated layers. The file loads, the sampler runs, and you get a black PNG with
 no error anywhere. `merge_anima.py` counts the blocks and refuses; the CLI then
 anchors on the first donor automatically, because that is the only merge those
 files support. An explicit `-Base` is never overridden.
+
+### Samplers and schedulers from RES4LYF
+
+`beta57`, `bong_tangent`, `res_2s`, `res_2m` and `rk_beta` are not in SwarmUI or
+ComfyUI out of the box. `install` clones **RES4LYF** into `custom_nodes`, which
+registers them with ComfyUI, and SwarmUI merges that list into its own dropdown
+when its backend connects — so **restart SwarmUI after installing**. Measured
+here: schedulers 9 → 11, samplers 45 → 64.
+
+`anima_beta57` in the HaDeS graph is the same schedule as RES4LYF's **`beta57`**
+(`beta_scheduler(alpha=0.5, beta=0.7)`); use `beta57` in SwarmUI.
 
 Full reference — weights, scale, methods, compatibility rules and how to check a
 merge: **[docs/MERGE.md](docs/MERGE.md)**.
