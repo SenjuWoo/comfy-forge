@@ -16,15 +16,27 @@ function Add-Result([string]$Name, [string]$State, [string]$Detail) {
 }
 
 function Run-Check([string]$Name, [string]$Exe, [string[]]$Arguments, [int]$UnverifiedCode = -1) {
-    $out = & $Exe @Arguments 2>&1 | Out-String
-    $code = $LASTEXITCODE
+    # A command that never launched must not be judged by the previous command's
+    # $LASTEXITCODE, which is how a missing interpreter can look like success.
+    $global:LASTEXITCODE = $null
+    try {
+        $out = & $Exe @Arguments 2>&1 | Out-String
+        $code = $LASTEXITCODE
+        $launched = $true
+    } catch {
+        $out = $_.Exception.Message
+        $code = $null
+        $launched = $false
+    }
     $tail = (($out -split "`n" | Where-Object { $_ -match '\S' } | Select-Object -Last 1) -join '').Trim()
+    if (-not $launched -or $null -eq $code) { Add-Result $Name 'FAIL' ("could not run: " + $tail); return }
     if ($code -eq 0) { Add-Result $Name 'PASS' $tail }
     elseif ($UnverifiedCode -ge 0 -and $code -eq $UnverifiedCode) { Add-Result $Name 'UNVERIFIED' $tail }
     else { Add-Result $Name 'FAIL' $tail }
 }
 
 $py = if ($env:COMFY_PYTHON) { $env:COMFY_PYTHON } else { 'python' }
+$jsonOut = if ($env:COMFY_PREFLIGHT_JSON) { $env:COMFY_PREFLIGHT_JSON } else { $null }
 
 Write-Host '== comfy-kit preflight =='
 Run-Check 'powershell syntax' 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-PsSyntax.ps1')
@@ -56,6 +68,19 @@ Write-Host ''
 Write-Host ("version  {0}" -f $version)
 Write-Host ("commit   {0}{1}" -f $head, $(if ($dirty) { ' (working tree dirty)' } else { '' }))
 Write-Host ("checks   {0} passed, {1} failed, {2} unverified" -f @($results | Where-Object { $_.State -eq 'PASS' }).Count, $failed.Count, $unverified.Count)
+$machine = [pscustomobject]@{
+    tool       = 'comfy-kit preflight'
+    version    = $version
+    commit     = $head
+    dirty      = [bool]$dirty
+    local_pass = ($failed.Count -eq 0 -and -not $dirty)
+    release_ready = ($failed.Count -eq 0 -and -not $dirty -and $unverified.Count -eq 0)
+    checks     = @($results)
+}
+if ($jsonOut) {
+    $machine | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $jsonOut -Encoding utf8
+    Write-Host ("evidence {0}" -f $jsonOut)
+}
 Pop-Location
 
 if ($failed.Count -gt 0) { Write-Host 'RELEASE: BLOCKED (failures)'; exit 1 }

@@ -1,13 +1,24 @@
 # Model-file installation as one transaction.
 #
-# The installer used to move an existing checkpoint out of the way and then call
-# a logging helper that did not exist, so a logging failure could leave the user
-# with no file at the destination. This module stages first, verifies the bytes,
-# and only then touches the destination - and it never depends on a helper that
-# might be missing.
+# History worth keeping: the installer once moved an existing checkpoint aside
+# and then called a logging helper that did not exist, outside the try block, so
+# a logging failure could leave the user with no file at the destination. It also
+# claimed resumable downloads while staging to a fresh GUID name every run, which
+# makes `curl -C -` a no-op - there was never a partial to resume from.
+#
+# This module stages to a stable partial tied to the expected artifact identity,
+# resumes only when that partial is provably the same file, publishes through a
+# seam the tests can fail, and never deletes anything it did not create.
 #
 # Dot-sourced by TOOLS/Ensure-AnimaSwarmUI.ps1 and by TESTS/Test-ModelInstall.ps1
-# so the tests exercise this exact code rather than a copy of it.
+# so the tests exercise this code rather than a copy of it.
+
+function Get-ModelPartialIdentity {
+    param([string]$Sha256, [long]$Bytes)
+    # Ties a partial file to one exact expected artifact: a changed manifest must
+    # never resume onto the previous build's bytes.
+    return ("$Sha256|$Bytes")
+}
 
 function Install-ModelFile {
     <#
@@ -19,8 +30,10 @@ function Install-ModelFile {
         [Parameter(Mandatory)] [string]$Url,
         [Parameter(Mandatory)] [long]$ExpectedBytes,
         [Parameter(Mandatory)] [string]$ExpectedSha256,
-        # Test seam: replaces the download only. Everything else is real.
+        # Test seams: the download and the publication step. Everything else is
+        # the real implementation.
         [scriptblock]$Downloader = $null,
+        [scriptblock]$Publish = $null,
         [scriptblock]$Log = $null
     )
 
@@ -30,63 +43,114 @@ function Install-ModelFile {
         try { & $Log $m } catch { }
     }
 
-    $staging = $Destination + '.download-' + [guid]::NewGuid().ToString('N').Substring(0, 10)
+    $identity = Get-ModelPartialIdentity -Sha256 $ExpectedSha256 -Bytes $ExpectedBytes
+    $partial = $Destination + '.partial'
+    $sidecar = $partial + '.id'
+    $lockPath = $Destination + '.install-lock'
     $backup = $null
     $movedAside = $false
+    $resumed = $false
+    $lock = $null
 
-    # 0. Anything at the destination that is not a file is a layout error, not
-    #    something to move aside.
     if (Test-Path -LiteralPath $Destination -PathType Container) {
         return @{ State = 'failed'; Message = 'destination is a directory: ' + $Destination }
     }
 
-    # 1. A verified destination is left completely alone.
+    # Fresh ComfyUI installs often have `models/` and nothing under it. The
+    # staging file lives beside the destination, so the category folder has to
+    # exist before the first download or the install fails on a missing path.
+    $parentDir = Split-Path -Parent $Destination
+    if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
+        try { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
+        catch { return @{ State = 'failed'; Message = 'cannot create ' + $parentDir } }
+    }
+
+    # Crash recovery: a process killed between "move destination aside" and
+    # "move the verified partial in" leaves the destination missing and the old
+    # file under .replaced-*. Put the newest one back before doing anything else.
+    if (-not (Test-Path -LiteralPath $Destination)) {
+        $parent = Split-Path -Parent $Destination
+        $leaf = Split-Path -Leaf $Destination
+        $orphans = @(Get-ChildItem -LiteralPath $parent -Filter ($leaf + '.replaced-*') -ErrorAction SilentlyContinue |
+                     Sort-Object LastWriteTimeUtc -Descending)
+        if ($orphans.Count -gt 0) {
+            Move-Item -LiteralPath $orphans[0].FullName -Destination $Destination -Force
+            Write-Log ('recovered ' + $leaf + ' from an interrupted install')
+        }
+    }
+
+    # Already correct: leave it completely alone.
     if (Test-Path -LiteralPath $Destination) {
         if ((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash -eq $ExpectedSha256) {
             return @{ State = 'unchanged'; Message = 'already present and verified' }
         }
     }
 
+    # A partial belonging to a different artifact must not be resumed onto.
+    if (Test-Path -LiteralPath $partial) {
+        $known = ''
+        if (Test-Path -LiteralPath $sidecar) { $known = (Get-Content -LiteralPath $sidecar -Raw).Trim() }
+        if ($known -ne $identity) {
+            Remove-Item -LiteralPath $partial, $sidecar -Force -ErrorAction SilentlyContinue
+            Write-Log 'discarded a partial download that belongs to a different file'
+        }
+    }
+
+    # One installer at a time per destination: two would corrupt the partial and
+    # both would fail slowly.
+    try { $lock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
+    catch { return @{ State = 'failed'; Message = 'another install is already writing ' + $Destination } }
+
     try {
-        # 2. Stage the download next to the destination; the real file is not
-        #    touched until verified bytes exist.
-        Write-Log ('downloading ' + (Split-Path -Leaf $Destination))
-        if ($Downloader) { & $Downloader $Url $staging }
-        else {
-            # curl is preferred: -C - resumes a partial download and -sS keeps a
-            # progress meter from becoming a terminating error under
-            # $ErrorActionPreference='Stop'. stderr goes to a file, never the
-            # pipeline, so $LASTEXITCODE stays curl's own.
-            $curl = $null
-            foreach ($c in @(Get-Command curl.exe -CommandType Application -All -ErrorAction SilentlyContinue)) {
-                if ($c.Source) { $curl = $c.Source; break }
-            }
-            if ($curl) {
+        if (-not (Test-Path -LiteralPath $sidecar)) {
+            Set-Content -LiteralPath $sidecar -Value $identity -NoNewline -Encoding ascii
+        }
+        $have = if (Test-Path -LiteralPath $partial) { (Get-Item -LiteralPath $partial).Length } else { 0 }
+        $resumed = $have -gt 0
+        if ($resumed) { Write-Log ('resuming at ' + $have + ' bytes') }
+
+        for ($attempt = 1; $attempt -le 2; $attempt++) {
+            if ($Downloader) { & $Downloader $Url $partial $resumed }
+            elseif (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+                # -C - asks only for the missing range. -sS keeps curl's progress
+                # meter off stderr, where it becomes a terminating error under
+                # EAP=Stop. stderr goes to a file so $LASTEXITCODE stays curl's.
+                $curlArgs = @('-sS', '-L', '--fail')
+                if ($resumed) { $curlArgs += @('-C', '-') }
+                $curlArgs += @('--output', $partial, $Url)
                 $errLog = Join-Path ([IO.Path]::GetTempPath()) ('comfy-kit-curl-' + [guid]::NewGuid().ToString('N') + '.log')
                 try {
-                    & $curl -sS -L --fail -C - --output $staging $Url 2> $errLog
-                    if ([int]$LASTEXITCODE -ne 0) {
+                    & curl.exe @curlArgs 2> $errLog
+                    $code = [int]$LASTEXITCODE
+                    if ($code -ne 0) {
                         $tail = if (Test-Path -LiteralPath $errLog) { (Get-Content -LiteralPath $errLog -Tail 3) -join ' | ' } else { '' }
                         throw ('curl download failed: ' + $tail)
                     }
                 }
                 finally { Remove-Item -LiteralPath $errLog -Force -ErrorAction SilentlyContinue }
-            } else {
-                $headers = @{ 'User-Agent' = 'Ultimate-AI-Starter-Bundle-Anima' }
-                Invoke-WebRequest -Uri $Url -OutFile $staging -Headers $headers -TimeoutSec 3600 -UseBasicParsing
             }
+            else {
+                # No curl means no range support: this is a full restart, not a
+                # resume, and the code says so rather than pretending.
+                $headers = @{ 'User-Agent' = 'Ultimate-AI-Starter-Bundle-Anima' }
+                Invoke-WebRequest -Uri $Url -OutFile $partial -Headers $headers -TimeoutSec 3600 -UseBasicParsing
+            }
+
+            $size = (Get-Item -LiteralPath $partial).Length
+            if ($size -eq $ExpectedBytes -and
+                (Get-FileHash -LiteralPath $partial -Algorithm SHA256).Hash -eq $ExpectedSha256) { break }
+
+            if ($attempt -eq 1) {
+                # A server that ignored the range appends duplicate bytes; start
+                # clean once instead of publishing a longer, wrong file.
+                Write-Log 'partial did not verify after resume; downloading from scratch'
+                Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+                $resumed = $false
+                continue
+            }
+            throw ('download verification failed: got ' + $size + ' bytes')
         }
 
-        # 3. Verify size and hash before publication.
-        $size = (Get-Item -LiteralPath $staging).Length
-        if ($size -ne $ExpectedBytes) {
-            throw ('size mismatch: expected ' + $ExpectedBytes + ' bytes, got ' + $size)
-        }
-        if ((Get-FileHash -LiteralPath $staging -Algorithm SHA256).Hash -ne $ExpectedSha256) {
-            throw 'SHA-256 mismatch for the downloaded file'
-        }
-
-        # 4. Keep the previous file, but only now that a good replacement exists.
         if (Test-Path -LiteralPath $Destination) {
             $backup = $Destination + '.replaced-' + (Get-Date -Format 'yyyyMMdd-HHmmss') +
                       '-' + [guid]::NewGuid().ToString('N').Substring(0, 6)
@@ -95,15 +159,20 @@ function Install-ModelFile {
             Write-Log ('previous file kept as ' + (Split-Path -Leaf $backup))
         }
 
-        # 5. Publish.
-        Move-Item -LiteralPath $staging -Destination $Destination -Force
+        # Publication seam: tests inject a failure here, after the backup exists
+        # and before the destination is replaced.
+        if ($Publish) { & $Publish $partial $Destination }
+        else { Move-Item -LiteralPath $partial -Destination $Destination -Force }
+
+        Remove-Item -LiteralPath $sidecar -Force -ErrorAction SilentlyContinue
         Write-Log ('installed ' + (Split-Path -Leaf $Destination))
         return @{ State = 'installed'; Message = 'verified and installed' }
     }
     catch {
-        # 6. Undo anything this operation did; restore what it displaced.
-        if (Test-Path -LiteralPath $staging) {
-            Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+        # Keep the partial as a resume point unless it is provably wrong.
+        if ((Test-Path -LiteralPath $partial) -and
+            (Get-Item -LiteralPath $partial).Length -gt $ExpectedBytes) {
+            Remove-Item -LiteralPath $partial, $sidecar -Force -ErrorAction SilentlyContinue
         }
         if ($movedAside) {
             if (Test-Path -LiteralPath $Destination) {
@@ -111,9 +180,17 @@ function Install-ModelFile {
             }
             if ($backup -and (Test-Path -LiteralPath $backup)) {
                 try { Move-Item -LiteralPath $backup -Destination $Destination -Force }
-                catch { Write-Log 'could not restore the previous file' }
+                catch {
+                    # Never lose the old file silently: name where it is.
+                    return @{ State = 'failed'
+                              Message = ('publication failed and the previous file could not be restored; it is at ' + $backup) }
+                }
             }
         }
         return @{ State = 'failed'; Message = $_.Exception.Message }
+    }
+    finally {
+        if ($lock) { $lock.Dispose() }
+        Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
     }
 }

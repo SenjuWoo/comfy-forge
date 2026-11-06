@@ -62,6 +62,9 @@ jobs:
       - name: Workflow lineage gate self-test (synthetic)
         run: python TESTS/validate_workflows.py --self-test
 
+      - name: Lock validator self-test (mock responses)
+        run: python TOOLS/validate-lock.py --self-test
+
       - name: Dependency lock (pins must resolve upstream)
         shell: pwsh
         env:

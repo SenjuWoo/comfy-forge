@@ -19,13 +19,25 @@ CANDIDATE_PORTS = [7821, 7822, 8188, 8000]
 
 
 def detect_port():
+    """A real ComfyUI endpoint, not just an open socket.
+
+    Half-dead backends hold a listening port while never answering; probing
+    /system_stats is what tells the two apart.
+    """
+    import urllib.request
     env_port = os.environ.get("COMFYUI_PORT")
     ports = ([int(env_port)] if env_port else []) + CANDIDATE_PORTS
     for port in ports:
         with socket.socket() as s:
             s.settimeout(0.4)
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                return port
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                continue
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/system_stats", timeout=5) as r:
+                if "system" in json.loads(r.read().decode()):
+                    return port
+        except Exception:
+            continue
     return None
 
 
@@ -47,12 +59,33 @@ def main(argv=None):
                             stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env)
     assert proc.stdin is not None and proc.stdout is not None
 
-    def send(mid, method, params=None):
+    def send(mid, method, params=None, timeout=90):
+        """Bounded read: a stalled npx/MCP start must not hang the test forever."""
+        import queue
+        import threading
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": mid,
                                      "method": method,
                                      "params": params or {}}) + chr(10))
         proc.stdin.flush()
-        return json.loads(proc.stdout.readline())
+        box = queue.Queue()
+
+        def read():
+            try:
+                box.put(proc.stdout.readline())
+            except Exception as e:  # pragma: no cover - process death
+                box.put(e)
+
+        t = threading.Thread(target=read, daemon=True)
+        t.start()
+        try:
+            line = box.get(timeout=timeout)
+        except queue.Empty:
+            raise RuntimeError(f"MCP server did not answer {method} within {timeout}s")
+        if isinstance(line, Exception):
+            raise line
+        if not line:
+            raise RuntimeError(f"MCP server closed the stream during {method}")
+        return json.loads(line)
 
     try:
         init = send(1, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
