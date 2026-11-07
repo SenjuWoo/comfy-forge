@@ -18,7 +18,7 @@
   Nothing here downloads a model, touches a user installation or renders.
 #>
 [CmdletBinding()]
-param()
+param([switch]$DiscoveryOnly)
 $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path -Parent $PSScriptRoot
@@ -27,6 +27,36 @@ $fail = 0
 $skip = 0
 
 function Pass($m) { Write-Host "ok   $m" }
+
+# Every place the CLI can discover SwarmUI: env override, both saved-state
+# locations (new and legacy), and the conventional installs. A hard-coded pair of
+# paths is not a safety check.
+function Get-RealSwarmRoot {
+  if ($env:SWARMUI_ROOT -and (Test-Path -LiteralPath $env:SWARMUI_ROOT)) { return $env:SWARMUI_ROOT }
+  $states = @(
+    (Join-Path $env:LOCALAPPDATA 'comfy-kit\anima-swarmui.json'),
+    (Join-Path $env:LOCALAPPDATA 'Ultimate-AI-Starter-Bundle\anima-swarmui.json')
+  )
+  foreach ($state in $states) {
+    if (-not (Test-Path -LiteralPath $state)) { continue }
+    try {
+      $json = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
+      foreach ($f in @($json.frontends)) {
+        if ($f.kind -eq 'SwarmUI' -and $f.root -and (Test-Path -LiteralPath $f.root)) { return $f.root }
+      }
+    } catch { }
+  }
+  foreach ($p in @('S:\Misc\SwarmUI', 'C:\SwarmUI', (Join-Path $env:USERPROFILE 'SwarmUI'))) {
+    if (Test-Path -LiteralPath $p) { return $p }
+  }
+  return $null
+}
+
+if ($DiscoveryOnly) {
+  $found = Get-RealSwarmRoot
+  if ($found) { "swarm=$found" } else { "swarm=none" }
+  exit 0
+}
 function Fail($m) { Write-Host "FAIL $m"; $script:fail++ }
 function Skip($m) { Write-Host "skip $m"; $script:skip++ }
 
@@ -130,7 +160,7 @@ if ($r.Exit -ne 0 -and $r.Text) {
 }
 
 # --- 4. install: only safe where no real SwarmUI exists ---------------------
-$swarm = @('S:\Misc\SwarmUI', 'C:\SwarmUI') | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$swarm = Get-RealSwarmRoot
 if ($swarm) {
   Skip "install not run: a real SwarmUI exists at $swarm (would install for real)"
 } else {
@@ -140,6 +170,23 @@ if ($swarm) {
   } else {
     Fail "install without SwarmUI: exit=$($r.Exit)"
   }
+}
+
+# --- 5. a nonstandard install is still discovered ----------------------------
+$fake = Join-Path ([IO.Path]::GetTempPath()) ('swarm-probe-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $fake -Force | Out-Null
+$savedRoot = $env:SWARMUI_ROOT
+try {
+  $env:SWARMUI_ROOT = $fake
+  $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -DiscoveryOnly 2>&1 | Out-String
+  if ($out -match [regex]::Escape($fake)) {
+    Pass 'a nonstandard install via SWARMUI_ROOT is discovered (install would be skipped)'
+  } else {
+    Fail "nonstandard install not discovered: $($out.Trim())"
+  }
+} finally {
+  $env:SWARMUI_ROOT = $savedRoot
+  Remove-Item -LiteralPath $fake -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host ''

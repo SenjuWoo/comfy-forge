@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.5.7 - a lost race no longer deletes the winner
+
+Three findings from an external review of 0.5.6, each reproduced before it was fixed.
+
+### P0 - the destination race deleted another writer's file
+
+`expose()` refused an existing destination, then opened it exclusively - correct - but
+on any failure it unlinked the destination if one existed. If another process created
+that file between the check and the open, `_copy_exclusive` raised `FileExistsError`
+and the handler deleted *their* file.
+
+Reproduced against 0.5.6: `competing file survives: False`.
+
+Cleanup now belongs to whoever created the file. `expose()` never unlinks the
+destination; `_copy_exclusive` removes only the partial it created, and a lost race
+propagates untouched. Failure injection moved inside the real writer (`fail_after`),
+so tests exercise the ownership rule instead of substituting their own writer.
+
+### P1 - the CLI-surface test could run the real installer
+
+It recognised two hard-coded paths (`S:\Misc\SwarmUI`, `C:\SwarmUI`). The CLI also
+discovers a frontend through `SWARMUI_ROOT` and through its saved state file, so an
+install at any other path would have made a read-only test run `install`.
+
+The test now resolves the frontend the way the CLI does - env var, both state
+locations (`comfy-kit` and the legacy bundle path), then the conventional folders -
+and skips `install` whenever any of them exists. `-DiscoveryOnly` exposes the
+resolution for verification, and a regression sets `SWARMUI_ROOT` to a temporary
+directory to prove a nonstandard install is still found.
+
+### P2 - backend-reported paths were trusted too broadly
+
+`claim_saved()` took `root` as optional and `main()` never passed it, so any file with
+the run's prefix anywhere on disk could be claimed and deleted. `preview_path()`
+joined the backend's filename onto the saved path, so `../` traversal survived as long
+as the basename matched.
+
+`root` is now required with no default, containment is checked on real paths, and the
+trusted root is inferred only from a ComfyUI-shaped tree (`output` next to `models`) or
+supplied with `--output-root`. Preview filenames must be simple basenames with the
+expected prefix and `type: output`; traversal and subfolders are refused.
+
+### Verified
+
+```
+before: probe_race.py ....... competing file survives: False
+after:  probe_race.py ....... competing file survives: True
+test_merge_artifacts.py ..... PASS
+Test-CliSurface.ps1 ......... PASS (install skipped, nonstandard root discovered)
+test_workflow_convert.py .... PASS
+compileall TOOLS TESTS ...... ok
+```
+
 ## v0.5.6 - the merge test only deletes what it created
 
 The live merge test wrote a multi-gigabyte checkpoint and trusted whatever path the

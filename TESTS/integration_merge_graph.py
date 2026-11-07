@@ -77,27 +77,47 @@ def _name_ok(path, stem):
     return os.path.basename(path).startswith(stem)
 
 
-def claim_saved(saved, run_id, root=None):
+def infer_output_root(path):
+    """Trusted root for a backend-reported path: the output directory of a ComfyUI tree.
+
+    Walks up from the reported file until it finds a directory named `output` that
+    has a sibling `models` directory, and refuses anything else. The backend is not
+    trusted to name a location: this only accepts the layout ComfyUI itself uses,
+    and `--output-root` overrides it when a user runs a nonstandard tree.
+    """
+    current = os.path.dirname(os.path.abspath(path))
+    while current and os.path.dirname(current) != current:
+        if (os.path.basename(current).lower() == "output"
+                and os.path.isdir(os.path.join(os.path.dirname(current), "models"))):
+            # Real path, so a symlinked temp root (the common case on CI) compares
+            # equal to the paths claim_saved canonicalises.
+            return os.path.realpath(current)
+        current = os.path.dirname(current)
+    return None
+
+
+def claim_saved(saved, run_id, root):
     """Pick the one saved_path that belongs to this run, or refuse.
 
     The backend reports whatever it wrote. Deleting that on trust means a mocked or
-    buggy backend can hand us a user's model. Ownership is the unique filename
-    prefix this run injected into every saver node, plus an optional containment
-    check; anything ambiguous is refused rather than guessed.
+    buggy backend can hand us a user's model, so ownership needs two proofs: the
+    unique saver prefix this run injected, and containment in a root this process
+    derived itself. No root, no claim - the parameter has no default on purpose.
     """
+    if not root:
+        return None, "no trusted output root: refusing to claim any reported path"
     stem = RUN_STEM % run_id
+    real_root = os.path.realpath(root)
     matches = []
     for path in saved:
-        if not _name_ok(path, stem) or not os.path.isfile(path):
+        if not _name_ok(path, stem):
             continue
-        if root:
-            try:
-                inside = os.path.commonpath([os.path.abspath(path), os.path.abspath(root)])
-            except ValueError:
-                inside = ""
-            if os.path.abspath(inside) != os.path.abspath(root):
-                continue
-        matches.append(path)
+        real = os.path.realpath(path)
+        if os.path.dirname(real) != real_root:
+            continue
+        if not os.path.isfile(real):
+            continue
+        matches.append(real)
     if not matches:
         return None, ("no saved_path starts with %r; refusing to delete anything (reported: %s)"
                       % (stem, ", ".join(saved) or "none"))
@@ -106,15 +126,24 @@ def claim_saved(saved, run_id, root=None):
     return matches[0], None
 
 
-def preview_path(img, saved_path, run_id):
+def preview_path(img, output_root, run_id):
     """The SaveImage preview this run is about to create, before it is downloaded.
 
     Registered for cleanup ahead of the HTTP call: a failed download must not leave
-    the preview on disk. Returns None when the image is not demonstrably ours.
+    the preview on disk. Returns None when the image is not demonstrably ours - the
+    backend supplies this filename, so a simple basename inside the trusted output
+    directory is required, not merely a matching suffix.
     """
-    if not img or img.get("subfolder"):
+    if not img or img.get("subfolder") or img.get("type", "output") != "output":
         return None
-    candidate = os.path.join(os.path.dirname(saved_path), str(img.get("filename", "")))
+    name = str(img.get("filename", ""))
+    if not name or name != os.path.basename(name) or ".." in name.split("."):
+        return None
+    if os.sep in name or (os.altsep and os.altsep in name):
+        return None
+    candidate = os.path.join(output_root, name)
+    if os.path.dirname(os.path.realpath(candidate)) != os.path.realpath(output_root):
+        return None
     return candidate if _name_ok(candidate, RUN_STEM % run_id + "-render") else None
 
 
@@ -135,16 +164,19 @@ def cleanup(paths, keep):
     return failures
 
 
-def expose(saved_path, models_dir, name, copy=shutil.copy2, same_volume=None):
+def expose(saved_path, models_dir, name, same_volume=None, writer=None):
     """Make the saved merge visible to UNETLoader under a name nobody owns.
 
     Refuses an existing file outright. A hard link shares the bytes on the same
     volume; on another volume the copy is a full second checkpoint, so the free
-    space is checked first and a copy that dies midway is removed - it is a
-    truncated file this run created, never a pre-existing model.
+    space is checked first.
 
-    same_volume is only overridden by tests; production derives it from the
-    filesystem so the decision cannot drift from reality.
+    Cleanup belongs to whoever created the file. This function never unlinks the
+    destination: if the exclusive open loses a race, the winner's file is not ours
+    and survives. A copy that dies midway removes its own partial inside
+    _copy_exclusive, which is the only code that knows it created one.
+
+    same_volume and writer are overridden only by tests; production derives both.
     """
     visible = os.path.join(models_dir, name)
     if os.path.exists(visible):
@@ -158,35 +190,41 @@ def expose(saved_path, models_dir, name, copy=shutil.copy2, same_volume=None):
     need = os.path.getsize(saved_path) / 1e9 * 1.1
     if shutil.disk_usage(models_dir).free / 1e9 < need:
         raise OSError("copying %.1f GB needs free space on %s" % (need, models_dir))
-    try:
-        if copy is shutil.copy2:
-            _copy_exclusive(saved_path, visible)
-        else:
-            # Tests inject a writer to simulate a copy that dies midway; production never gets here.
-            copy(saved_path, visible)
-    except BaseException:
-        if os.path.exists(visible):
-            try:
-                os.unlink(visible)
-            except OSError:
-                pass
-        raise
+    (writer or _copy_exclusive)(saved_path, visible)
     return visible, "copy"
 
 
-def _copy_exclusive(src, dst, chunk=4 * 1024 * 1024):
+def _copy_exclusive(src, dst, chunk=4 * 1024 * 1024, fail_after=None):
     """Copy into a destination that must not exist yet.
 
     O_CREAT|O_EXCL is the actual guard: the earlier os.path.exists() check only
     produces a nicer message, and between the two another process can create the
     file. Exclusive creation makes the second writer lose instead of overwriting.
+
+    If the open loses, FileExistsError propagates and nothing is deleted - the file
+    belongs to the winner. A failure after we created the file removes our own
+    partial, because this is the only code that knows it exists.
     """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     flags |= getattr(os, "O_BINARY", 0)
     fd = os.open(dst, flags, 0o666)
     try:
         with os.fdopen(fd, "wb") as out, open(src, "rb") as source:
-            shutil.copyfileobj(source, out, chunk)
+            copied = 0
+            while True:
+                block = source.read(chunk)
+                if not block:
+                    break
+                if fail_after is not None and copied + len(block) > fail_after:
+                    raise OSError("injected copy failure after %d bytes" % copied)
+                out.write(block)
+                copied += len(block)
+    except BaseException:
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
+        raise
         shutil.copystat(src, dst)
     except BaseException:
         try:
@@ -205,6 +243,8 @@ def main():
                     help="backend models/diffusion_models; derived from the saved file if omitted")
     ap.add_argument("--donors", default="",
                     help="comma list overriding the donor loaders, in graph order")
+    ap.add_argument("--output-root", default=os.environ.get("COMFYUI_OUTPUT_DIR"),
+                    help="trusted ComfyUI output directory; derived from the tree when omitted")
     ap.add_argument("--keep-artifacts", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
@@ -277,7 +317,12 @@ def main():
     if not saved:
         print("FAIL the saver reported no saved_path: %s" % json.dumps(entry.get("outputs"))[:300])
         return 1
-    saved_path, why = claim_saved(saved, run_id)
+    output_root = args.output_root or infer_output_root(saved[0])
+    if not output_root:
+        print("FAIL cannot establish a trusted output directory for the reported path(s); "
+              "pass --output-root. Reported: %s" % ", ".join(saved))
+        return 1
+    saved_path, why = claim_saved(saved, run_id, output_root)
     if saved_path is None:
         print("FAIL %s" % why)
         return 1
@@ -358,7 +403,7 @@ def main():
             print("FAIL the reloaded merge produced no image")
             return 1
         # Registered before the download: an HTTP error must not leave the preview behind.
-        preview = preview_path(img, saved_path, run_id)
+        preview = preview_path(img, output_root, run_id)
         if preview and preview not in created:
             created.append(preview)
         q = urllib.parse.urlencode({"filename": img["filename"],
