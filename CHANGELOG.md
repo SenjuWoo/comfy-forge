@@ -1,5 +1,57 @@
 # Changelog
 
+## v0.5.8 - metadata that was never written, a test that never wrote
+
+Three findings from review of 0.5.7, each reproduced before the fix.
+
+### Metadata copying was unreachable
+
+`_copy_exclusive()` ended its failure path with `raise`, and `shutil.copystat()` sat
+after that raise. A successful cross-volume copy therefore never copied metadata:
+source mtime 1600000000 arrived as "now", and on POSIX a 0600 source became 0644.
+
+Reproduced on 0.5.7 - `finding1_copystat_reached: false`; 0.5.8 - `true`. The stat copy
+now runs after a completed write and inside the protected scope, so a failure there
+still removes the partial this code created.
+
+### The partial-copy test measured an empty file
+
+The test copied a 4096-byte source with a 4 MiB chunk and `fail_after=1000`, and the
+injection fired before any write - so it asserted cleanup of a zero-byte file while
+reporting that a partial was removed.
+
+Injection now fires after bytes are on disk. Reproduced on 0.5.7 -
+`finding2_partial_bytes: 0`; 0.5.8 - `4096`. The test observes the partial at the
+moment `_copy_exclusive` deletes it and asserts it existed, held bytes, and that the
+failure name the byte count.
+
+### The trusted output root was inferred from the thing it was meant to verify
+
+`infer_output_root()` walked up from the backend-reported path to any directory named
+`output` with a sibling `models`. Whoever fabricates the report also fabricates that
+shape, so the check proved nothing.
+
+`resolve_output_root()` replaces it: an explicit `--output-root`, `COMFYUI_OUTPUT_DIR`,
+or the frontend installation record this machine already has. No backend-reported path
+is consulted. When none of those names an existing directory the run fails closed with
+the flag to pass. Reproduced on 0.5.7 - `finding3_forged_root: accepted`; 0.5.8 -
+`refused`.
+
+The bundled backend writes to `<frontend>/dlbackend/comfy/ComfyUI/output`, which is
+checked before the frontend's own `Output` tree; `--output-root` remains the override
+for nonstandard installs.
+
+### Verified
+
+```
+probe_058.py on 0.5.7 ..... FAIL (false, 0, accepted)
+probe_058.py on 0.5.8 ..... PASS (true, 4096, refused)
+test_merge_artifacts.py ... PASS
+Test-CliSurface.ps1 ....... PASS (install skipped)
+test_workflow_convert.py .. PASS
+preflight.ps1 ............. 16 passed, 0 failed, 0 unverified
+```
+
 ## v0.5.7 - a lost race no longer deletes the winner
 
 Three findings from an external review of 0.5.6, each reproduced before it was fixed.
