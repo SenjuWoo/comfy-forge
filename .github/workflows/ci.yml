@@ -31,9 +31,9 @@ jobs:
         shell: powershell
         run: ./TESTS/Test-AnimaInstall.ps1
 
-      - name: CLI status runs (every verb resolves)
+      - name: CLI surface (verbs, call graph, error paths)
         shell: powershell
-        run: ./TOOLS/image-stack.ps1 status
+        run: ./TESTS/Test-CliSurface.ps1
 
       - name: Merge math
         run: python TESTS/test_merge.py

@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.5 - the CLI surface is tested, not just parsed
+
+0.5.4 restored `Get-NodePackDrift` and added `status` as a gate. That covered one
+verb. `install`, `generate` and `merge` still had no regression coverage, and the
+failure that started this - a helper deleted by a refactor - could happen again in
+any of them.
+
+`TESTS/Test-CliSurface.ps1` now checks four things:
+
+- **every read-only verb runs**: `help`, `presets`, `status`, `mcp` must exit 0 and
+  print what they claim to print
+- **the call graph resolves**: both script and libraries are parsed, and any call
+  to a function that is neither defined locally nor resolvable as a command fails
+  the test. That is the deleted-helper bug caught statically, before a user runs it.
+  `Get-NodePackDrift` also keeps a named check.
+- **error paths refuse cleanly**: `merge` with no donors, `merge` with a missing
+  donor file, `generate` with an unknown preset must exit non-zero with a clear
+  message - and `merge` must write nothing when it refuses.
+- **`install` is not run where a real SwarmUI exists**: it reports `skip` rather
+  than touching an installation. On CI, with no SwarmUI, it must refuse cleanly.
+
+Verified by mutation: renaming `Get-NodePackDrift` fails the suite three ways
+(verb, call graph, named check), then passes again when restored.
+
 ## v0.5.4 - `status` works again
 
 The 0.5.1 refactor that moved the node-pack evaluator into
