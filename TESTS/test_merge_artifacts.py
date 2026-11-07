@@ -159,7 +159,7 @@ check(got is None, "a reported path that does not exist is refused")
 check(open(user, "rb").read() == b"user data", "the user file is untouched by any refusal")
 
 # --- trusted root inference -------------------------------------------------
-check(infer_output_root(owned) == os.path.realpath(outdir),
+check(os.path.realpath(infer_output_root(owned)) == os.path.realpath(outdir),
       "the output root is inferred from a ComfyUI-shaped tree")
 check(infer_output_root(os.path.join(tmp, "loose.safetensors")) is None,
       "a path outside any ComfyUI tree has no trusted root")

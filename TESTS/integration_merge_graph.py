@@ -89,7 +89,9 @@ def infer_output_root(path):
     while current and os.path.dirname(current) != current:
         if (os.path.basename(current).lower() == "output"
                 and os.path.isdir(os.path.join(os.path.dirname(current), "models"))):
-            return current
+            # Real path, so a symlinked temp root (the common case on CI) compares
+            # equal to the paths claim_saved canonicalises.
+            return os.path.realpath(current)
         current = os.path.dirname(current)
     return None
 
