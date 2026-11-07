@@ -120,10 +120,11 @@ if ($r.Exit -ne 0 -and -not $written) {
 }
 
 $r = Invoke-Cli @('generate', '-Preset', 'no such preset', '-Count', '1')
-# Write-Host output does not survive every child-process capture path, so the exit
-# code is the contract; the text is checked when it is there.
-if ($r.Exit -ne 0 -and (-not $r.Text -or $r.Text -match 'preset')) {
-  Pass 'generate with an unknown preset refuses'
+# The contract is "refuse, and say why". Which reason comes first depends on the
+# machine: without SwarmUI the backend check fires before the preset is looked at,
+# so the message is about SwarmUI rather than the preset name.
+if ($r.Exit -ne 0 -and $r.Text) {
+  Pass "generate with an unknown preset refuses ($($r.Text.Trim()))"
 } else {
   Fail "generate unknown preset: exit=$($r.Exit) text=$($r.Text)"
 }
