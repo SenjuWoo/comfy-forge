@@ -67,16 +67,72 @@ def check_error(entry, what):
     raise SystemExit("FAIL %s reported an error without detail" % what)
 
 
+RUN_STEM = "comfy-kit-4way-%s"
+
+
+def _name_ok(path, stem):
+    """Cheap ownership proof: the saver prefix was set by this run and nothing else uses it."""
+    if not path or os.path.islink(path):
+        return False
+    return os.path.basename(path).startswith(stem)
+
+
+def claim_saved(saved, run_id, root=None):
+    """Pick the one saved_path that belongs to this run, or refuse.
+
+    The backend reports whatever it wrote. Deleting that on trust means a mocked or
+    buggy backend can hand us a user's model. Ownership is the unique filename
+    prefix this run injected into every saver node, plus an optional containment
+    check; anything ambiguous is refused rather than guessed.
+    """
+    stem = RUN_STEM % run_id
+    matches = []
+    for path in saved:
+        if not _name_ok(path, stem) or not os.path.isfile(path):
+            continue
+        if root:
+            try:
+                inside = os.path.commonpath([os.path.abspath(path), os.path.abspath(root)])
+            except ValueError:
+                inside = ""
+            if os.path.abspath(inside) != os.path.abspath(root):
+                continue
+        matches.append(path)
+    if not matches:
+        return None, ("no saved_path starts with %r; refusing to delete anything (reported: %s)"
+                      % (stem, ", ".join(saved) or "none"))
+    if len(matches) > 1:
+        return None, "ambiguous: %d saved paths match this run (%s)" % (len(matches), ", ".join(matches))
+    return matches[0], None
+
+
+def preview_path(img, saved_path, run_id):
+    """The SaveImage preview this run is about to create, before it is downloaded.
+
+    Registered for cleanup ahead of the HTTP call: a failed download must not leave
+    the preview on disk. Returns None when the image is not demonstrably ours.
+    """
+    if not img or img.get("subfolder"):
+        return None
+    candidate = os.path.join(os.path.dirname(saved_path), str(img.get("filename", "")))
+    return candidate if _name_ok(candidate, RUN_STEM % run_id + "-render") else None
+
+
 def cleanup(paths, keep):
-    """Remove only the paths this run created; keep mode just reports them."""
+    """Remove only the paths this run created. Returns the ones that survived, with the reason."""
+    failures = []
     for path in paths:
         if keep:
             print("note kept     %s" % path)
             continue
         try:
             os.unlink(path)
-        except OSError:
-            pass
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            failures.append((path, str(exc)))
+            print("WARN could not remove %s (%s)" % (path, exc))
+    return failures
 
 
 def expose(saved_path, models_dir, name, copy=shutil.copy2, same_volume=None):
@@ -103,7 +159,11 @@ def expose(saved_path, models_dir, name, copy=shutil.copy2, same_volume=None):
     if shutil.disk_usage(models_dir).free / 1e9 < need:
         raise OSError("copying %.1f GB needs free space on %s" % (need, models_dir))
     try:
-        copy(saved_path, visible)
+        if copy is shutil.copy2:
+            _copy_exclusive(saved_path, visible)
+        else:
+            # Tests inject a writer to simulate a copy that dies midway; production never gets here.
+            copy(saved_path, visible)
     except BaseException:
         if os.path.exists(visible):
             try:
@@ -112,6 +172,28 @@ def expose(saved_path, models_dir, name, copy=shutil.copy2, same_volume=None):
                 pass
         raise
     return visible, "copy"
+
+
+def _copy_exclusive(src, dst, chunk=4 * 1024 * 1024):
+    """Copy into a destination that must not exist yet.
+
+    O_CREAT|O_EXCL is the actual guard: the earlier os.path.exists() check only
+    produces a nicer message, and between the two another process can create the
+    file. Exclusive creation makes the second writer lose instead of overwriting.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_BINARY", 0)
+    fd = os.open(dst, flags, 0o666)
+    try:
+        with os.fdopen(fd, "wb") as out, open(src, "rb") as source:
+            shutil.copyfileobj(source, out, chunk)
+        shutil.copystat(src, dst)
+    except BaseException:
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
+        raise
 
 
 def main():
@@ -195,15 +277,16 @@ def main():
     if not saved:
         print("FAIL the saver reported no saved_path: %s" % json.dumps(entry.get("outputs"))[:300])
         return 1
-    saved_path = saved[0]
-    if not os.path.exists(saved_path):
-        print("FAIL the saver reported a path that does not exist: %s" % saved_path)
+    saved_path, why = claim_saved(saved, run_id)
+    if saved_path is None:
+        print("FAIL %s" % why)
         return 1
     print("ok   saved     %s (%.2f GB)" % (saved_path, os.path.getsize(saved_path) / 1e9))
 
-    # From here on the saved file exists, so it is ours to remove. Registered
-    # immediately: every failure below has to take it with it.
+    # From here on the saved file exists and is provably this run's (unique prefix),
+    # so it is ours to remove. Registered immediately: every failure below takes it too.
     created = [saved_path]
+    leftovers = []
     try:
         try:
             from safetensors import safe_open
@@ -274,18 +357,21 @@ def main():
         if not img:
             print("FAIL the reloaded merge produced no image")
             return 1
+        # Registered before the download: an HTTP error must not leave the preview behind.
+        preview = preview_path(img, saved_path, run_id)
+        if preview and preview not in created:
+            created.append(preview)
         q = urllib.parse.urlencode({"filename": img["filename"],
                                     "subfolder": img.get("subfolder", ""),
                                     "type": img.get("type", "output")})
-        with urllib.request.urlopen(base + "/view?" + q, timeout=120) as r:
-            data = r.read()
+        try:
+            with urllib.request.urlopen(base + "/view?" + q, timeout=120) as r:
+                data = r.read()
+        except Exception as e:
+            print("FAIL the preview download failed (%s); it stays registered for cleanup: %s"
+                  % (e.__class__.__name__, preview or "no preview path"))
+            return 1
         print("ok   render    %s (%d bytes)" % (img["filename"], len(data)))
-        # SaveImage writes a preview into output/ next to the merge; it belongs to
-        # this run too, so cleanup covers it unless --keep-artifacts is set.
-        if not img.get("subfolder"):
-            preview = os.path.join(os.path.dirname(saved_path), img["filename"])
-            if os.path.exists(preview) and preview not in created:
-                created.append(preview)
         from PIL import Image
         im = Image.open(io.BytesIO(data)).convert("L")
         hist = im.histogram()
@@ -298,8 +384,13 @@ def main():
             print("FAIL the reloaded merge renders a flat frame")
             return 1
     finally:
-        cleanup(created, args.keep_artifacts)
+        leftovers = cleanup(created, args.keep_artifacts)
 
+    if leftovers:
+        # A pass that leaves multi-gigabyte files on the operator's disk is not a pass.
+        print("FAIL cleanup left %d artifact(s) behind: %s"
+              % (len(leftovers), ", ".join(p for p, _ in leftovers)))
+        return 1
     print("MERGE GRAPH: PASS (shipped workflow -> save -> reload -> render)")
     return 0
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.5.6 - the merge test only deletes what it created
+
+The live merge test wrote a multi-gigabyte checkpoint and trusted whatever path the
+backend reported. A mocked or buggy backend could hand it a user's model, and the
+test would delete it in cleanup. Ownership is now proven before anything is
+registered for deletion, and cleanup no longer hides failures.
+
+- **Ownership is the run's unique prefix, checked before deletion.** Every saver
+  node is given `comfy-kit-4way-<run id>`; a reported `saved_path` is claimed only
+  when its basename carries that prefix, it is a regular file, and (when the model
+  directory is known) it sits inside it. Zero or several matches are refused with
+  the reported paths in the message - ambiguity is never guessed at.
+- **The preview is registered before `/view`, not after.** A failed download used
+  to leave the PNG behind; it is now claimed and registered first, so every failure
+  path after that takes it with it.
+- **Cleanup reports what survived.** Gone paths are ignored; a permission or
+  file-lock failure is printed with its reason and returned, and a run that leaves
+  artifacts behind exits FAIL instead of PASS.
+- **Publication is exclusive.** `expose()` checked `exists()` and then copied, so a
+  file created in between was overwritten. The copy now opens the destination with
+  `O_CREAT|O_EXCL` and streams into it: the second writer loses instead of
+  destroying the first. The same-volume hard link was already exclusive.
+- **New failure-injection coverage:** unexpected backend paths, a pre-existing user
+  file, a preview download that dies, a locked file during cleanup, keep mode, and
+  a forced exists()-lies race proving the exclusive open, not the pre-check, is the
+  guard.
+
 ## v0.5.5 - the CLI surface is tested, not just parsed
 
 0.5.4 restored `Get-NodePackDrift` and added `status` as a gate. That covered one
