@@ -609,6 +609,11 @@ function Install-MissingRequirements {
 }
 
 function Invoke-Install {
+  # With no SwarmUI there is nothing to install into. Saying "done" and exiting 0
+  # hides that, so refuse and name the launcher the README asks for.
+  if (-not (Get-SwarmRoot)) {
+    Fail 'no SwarmUI install found - run launch-windows.bat in your SwarmUI folder first'
+  }
   $script = Join-Path $PSScriptRoot 'Ensure-AnimaSwarmUI.ps1'
   if (-not (Test-Path -LiteralPath $script)) { Fail "missing $script" }
   $cliArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script)

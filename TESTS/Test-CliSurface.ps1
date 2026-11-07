@@ -120,10 +120,12 @@ if ($r.Exit -ne 0 -and -not $written) {
 }
 
 $r = Invoke-Cli @('generate', '-Preset', 'no such preset', '-Count', '1')
-if ($r.Exit -ne 0 -and $r.Text -match 'preset') {
+# Write-Host output does not survive every child-process capture path, so the exit
+# code is the contract; the text is checked when it is there.
+if ($r.Exit -ne 0 -and (-not $r.Text -or $r.Text -match 'preset')) {
   Pass 'generate with an unknown preset refuses'
 } else {
-  Fail "generate unknown preset: exit=$($r.Exit)"
+  Fail "generate unknown preset: exit=$($r.Exit) text=$($r.Text)"
 }
 
 # --- 4. install: only safe where no real SwarmUI exists ---------------------

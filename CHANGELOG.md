@@ -51,6 +51,12 @@ any of them.
 Verified by mutation: renaming `Get-NodePackDrift` fails the suite three ways
 (verb, call graph, named check), then passes again when restored.
 
+The test found one real defect on a machine without SwarmUI: `install` printed
+"nothing to do" and exited 0. It now refuses and names the launcher to run first.
+The unknown-preset check also no longer depends on child-process `Write-Host`
+output being captured - the exit code is the contract, the text is asserted when
+it arrives.
+
 ## v0.5.4 - `status` works again
 
 The 0.5.1 refactor that moved the node-pack evaluator into
