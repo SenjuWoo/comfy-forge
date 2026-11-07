@@ -77,22 +77,49 @@ def _name_ok(path, stem):
     return os.path.basename(path).startswith(stem)
 
 
-def infer_output_root(path):
-    """Trusted root for a backend-reported path: the output directory of a ComfyUI tree.
+def resolve_output_root(explicit=None):
+    """The trusted output directory, established without asking the backend.
 
-    Walks up from the reported file until it finds a directory named `output` that
-    has a sibling `models` directory, and refuses anything else. The backend is not
-    trusted to name a location: this only accepts the layout ComfyUI itself uses,
-    and `--output-root` overrides it when a user runs a nonstandard tree.
+    A path the backend reports is data, not evidence: deriving trust from its own
+    shape is circular, because whoever fabricates the report also fabricates the
+    directory. Trust comes from something this process already knows - the operator's
+    flag, their environment, or the frontend installation record - and when none of
+    those names an existing directory the answer is None so callers fail closed.
     """
-    current = os.path.dirname(os.path.abspath(path))
-    while current and os.path.dirname(current) != current:
-        if (os.path.basename(current).lower() == "output"
-                and os.path.isdir(os.path.join(os.path.dirname(current), "models"))):
-            # Real path, so a symlinked temp root (the common case on CI) compares
-            # equal to the paths claim_saved canonicalises.
-            return os.path.realpath(current)
-        current = os.path.dirname(current)
+    def usable(path):
+        return path if path and os.path.isdir(path) else None
+
+    if explicit:
+        return usable(os.path.abspath(explicit))
+
+    # An explicit environment root decides on its own: if the operator named one and
+    # it is not there, that is a refusal, not a reason to fall back to something else.
+    if os.environ.get("COMFYUI_OUTPUT_DIR") is not None:
+        from_env = usable(os.environ["COMFYUI_OUTPUT_DIR"])
+        return os.path.realpath(from_env) if from_env else None
+
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        return None
+    states = [os.path.join(local, "comfy-kit", "anima-swarmui.json"),
+              os.path.join(local, "Ultimate-AI-Starter-Bundle", "anima-swarmui.json")]
+    for state in states:
+        if not os.path.isfile(state):
+            continue
+        try:
+            with open(state, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        for frontend in data.get("frontends") or []:
+            root = frontend.get("root") or ""
+            # The bundled ComfyUI backend is the one that writes merge previews;
+            # SwarmUI's own Output folder is a different tree and comes second.
+            for candidate in (os.path.join(root, "dlbackend", "comfy", "ComfyUI", "output"),
+                              os.path.join(root, "output")):
+                found = usable(candidate)
+                if found:
+                    return os.path.realpath(found)
     return None
 
 
@@ -215,16 +242,15 @@ def _copy_exclusive(src, dst, chunk=4 * 1024 * 1024, fail_after=None):
                 block = source.read(chunk)
                 if not block:
                     break
-                if fail_after is not None and copied + len(block) > fail_after:
-                    raise OSError("injected copy failure after %d bytes" % copied)
                 out.write(block)
                 copied += len(block)
-    except BaseException:
-        try:
-            os.unlink(dst)
-        except OSError:
-            pass
-        raise
+                # Injected failure fires after the bytes are on disk, so the partial
+                # this test cleans up is a real partial rather than an empty file.
+                if fail_after is not None and copied >= fail_after:
+                    raise OSError("injected copy failure after %d bytes" % copied)
+        # Inside the protected scope: a destination that keeps the source's mtime and
+        # mode is what a copy is expected to produce, and a failure here still removes
+        # the partial because we created it.
         shutil.copystat(src, dst)
     except BaseException:
         try:
@@ -317,10 +343,11 @@ def main():
     if not saved:
         print("FAIL the saver reported no saved_path: %s" % json.dumps(entry.get("outputs"))[:300])
         return 1
-    output_root = args.output_root or infer_output_root(saved[0])
+    output_root = resolve_output_root(args.output_root)
     if not output_root:
-        print("FAIL cannot establish a trusted output directory for the reported path(s); "
-              "pass --output-root. Reported: %s" % ", ".join(saved))
+        print("FAIL no trusted output directory. Pass --output-root <dir> or set "
+              "COMFYUI_OUTPUT_DIR; a path reported by the backend is not accepted as "
+              "proof of where it wrote. Reported: %s" % ", ".join(saved))
         return 1
     saved_path, why = claim_saved(saved, run_id, output_root)
     if saved_path is None:

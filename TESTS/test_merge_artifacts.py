@@ -7,12 +7,13 @@ paths are only trusted inside a root this process derived itself.
 """
 import os
 import shutil
+import stat
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from integration_merge_graph import (  # noqa: E402
-    _copy_exclusive, claim_saved, cleanup, expose, infer_output_root, preview_path)
+    _copy_exclusive, claim_saved, cleanup, expose, preview_path, resolve_output_root)
 
 fail = 0
 
@@ -56,21 +57,57 @@ except FileExistsError:
 check(open(blocked, "rb").read() == before, "the existing model is unchanged")
 
 # --- copy branch, successful ------------------------------------------------
+STAMP = 1_600_000_000
+os.utime(src, (STAMP, STAMP))
+src_bytes = open(src, "rb").read()
 v2, how2 = expose(src, models, "run-b.safetensors", same_volume=False)
 check(os.path.exists(v2) and how2 == "copy", "a cross-volume expose copies")
-check(os.path.getsize(v2) == 4096, "the copy is complete")
+check(open(v2, "rb").read() == src_bytes, "the copy is byte-for-byte identical")
+check(os.path.getsize(v2) == os.path.getsize(src), "the copy has the source's size")
+check(int(os.stat(v2).st_mtime) == STAMP, "the copy keeps the source's modification time")
+if os.name != "nt":
+    check(stat.S_IMODE(os.stat(v2).st_mode) == stat.S_IMODE(os.stat(src).st_mode),
+          "the copy keeps the source's permissions")
 
 # --- copy dies after the exclusive open: our partial is removed -------------
+seen = {}
+partial_path = os.path.join(models, "run-c.safetensors")
+real_unlink = os.unlink
+
+
+def spy_unlink(path):
+    # Watch the deletion instead of the aftermath: the partial is removed by
+    # _copy_exclusive itself, so the only moment it is observable is at unlink.
+    if os.path.abspath(path) == os.path.abspath(partial_path) and os.path.exists(path):
+        seen["existed"] = True
+        seen["size"] = os.path.getsize(path)
+    return real_unlink(path)
+
+
+def injected_failure(a, b):
+    os.unlink = spy_unlink
+    try:
+        _copy_exclusive(a, b, fail_after=1000)
+    except OSError as e:
+        seen["message"] = str(e)
+        raise
+    finally:
+        os.unlink = real_unlink
+
+
 try:
-    expose(src, models, "run-c.safetensors", same_volume=False,
-           writer=lambda a, b: _copy_exclusive(a, b, fail_after=1000))
+    expose(src, models, "run-c.safetensors", same_volume=False, writer=injected_failure)
     check(False, "a copy that dies midway raises")
-except OSError as e:
-    check("injected copy failure" in str(e), "a copy that dies midway raises")
+except OSError:
+    check("injected copy failure" in seen.get("message", ""), "a copy that dies midway raises")
+check(seen.get("existed") is True, "the partial destination really existed before cleanup")
+check(seen.get("size", 0) > 0, "the partial destination held bytes before cleanup")
+check(int(seen["message"].split("after ")[1].split(" bytes")[0]) >= 1000,
+      "the failure fired after the injected byte count")
 check(not os.path.exists(os.path.join(models, "run-c.safetensors")),
       "a copy that dies midway leaves no partial behind")
-check(os.path.exists(src) and os.path.getsize(src) == 4096,
-      "a failed copy leaves the source intact")
+check(open(src, "rb").read() == src_bytes, "a failed copy leaves the source unchanged")
+check(int(os.stat(src).st_mtime) == STAMP, "a failed copy leaves the source's mtime unchanged")
 
 # --- the race: another writer creates the destination first -----------------
 # No lies about os.path.exists here: the competing writer really creates the file
@@ -158,11 +195,38 @@ check(got is None, "a reported path that does not exist is refused")
 
 check(open(user, "rb").read() == b"user data", "the user file is untouched by any refusal")
 
-# --- trusted root inference -------------------------------------------------
-check(os.path.realpath(infer_output_root(owned)) == os.path.realpath(outdir),
-      "the output root is inferred from a ComfyUI-shaped tree")
-check(infer_output_root(os.path.join(tmp, "loose.safetensors")) is None,
-      "a path outside any ComfyUI tree has no trusted root")
+# --- trusted root comes from the operator, never from the backend -----------
+fake_tree = os.path.join(tmp, "FakeComfy")
+os.makedirs(os.path.join(fake_tree, "output"), exist_ok=True)
+os.makedirs(os.path.join(fake_tree, "models"), exist_ok=True)
+forged = os.path.join(fake_tree, "output", stem + ".safetensors")
+open(forged, "wb").write(b"forged")
+
+saved_env = os.environ.pop("COMFYUI_OUTPUT_DIR", None)
+saved_local = os.environ.get("LOCALAPPDATA")
+os.environ["LOCALAPPDATA"] = os.path.join(tmp, "no-state-here")
+try:
+    check(resolve_output_root() is None,
+          "no configuration means no trusted root, even beside a ComfyUI-shaped tree")
+    check(resolve_output_root(os.path.join(tmp, "no-such-dir")) is None,
+          "a root that does not exist is refused")
+    check(os.path.realpath(resolve_output_root(outdir)) == os.path.realpath(outdir),
+          "an explicit root is accepted")
+
+    os.environ["COMFYUI_OUTPUT_DIR"] = outdir
+    check(os.path.realpath(resolve_output_root()) == os.path.realpath(outdir),
+          "the environment can name the trusted root")
+    os.environ["COMFYUI_OUTPUT_DIR"] = os.path.join(tmp, "missing")
+    check(resolve_output_root() is None, "an environment root that does not exist is refused")
+finally:
+    os.environ.pop("COMFYUI_OUTPUT_DIR", None)
+    if saved_env is not None:
+        os.environ["COMFYUI_OUTPUT_DIR"] = saved_env
+    if saved_local is not None:
+        os.environ["LOCALAPPDATA"] = saved_local
+
+got, why = claim_saved([forged], run, None)
+check(got is None, "a forged path in a ComfyUI-shaped tree is not claimed without a trusted root")
 
 # --- preview registration happens before the download ----------------------
 img = {"filename": stem + "-render_00001_.png", "subfolder": "", "type": "output"}
