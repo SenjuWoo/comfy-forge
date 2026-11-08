@@ -50,6 +50,25 @@ def no_tagger(name):
     raise AssertionError("convert mode must not load a tagger")
 
 
+class ColourTagger:
+    """A tagger whose only skill is naming the dominant colour, so a changed image
+    produces a visibly different caption."""
+    tags = [("red background", 0), ("green background", 0)]
+
+    def __init__(self, name=None):
+        pass
+
+    def predict(self, path):
+        from PIL import Image
+        data = Image.open(path).convert("RGB").tobytes()
+        name = "red background" if data[0] > data[1] else "green background"
+        return {name: 0.99}
+
+
+def dead_tagger(name):
+    raise SystemExit("no tagger in this test run")
+
+
 def png(path, colour=(120, 40, 40)):
     from PIL import Image
     Image.new("RGB", (48, 48), colour).save(path)
@@ -126,8 +145,8 @@ try:
 
     # --- resume keeps a complete record -------------------------------------
     resumed_out = os.path.join(tmp, "resumed")
-    main(["--images", src, "--out", resumed_out, "--mode", "convert", "--trigger", "mychar"],
-         tagger_factory=no_tagger)
+    main(["--images", src, "--out", resumed_out, "--mode", "auto", "--trigger", "mychar"],
+         tagger_factory=lambda name: StubTagger())
     edited = os.path.join(resumed_out, "001.txt")
     open(edited, "w", encoding="utf-8", newline="\n").write("mychar, hand edited\n")
     code = main(["--images", src, "--out", resumed_out, "--mode", "auto", "--resume",
@@ -252,6 +271,79 @@ try:
           "no caption is invented for a corrupt image")
     broken_manifest = json.load(open(os.path.join(broken_out, "dataset-manifest.json"), encoding="utf-8"))
     check(broken_manifest["images_exported"] == 0, "the manifest does not claim an export")
+
+    # --- resume must notice a source caption edit with an unchanged image ---
+    cs = os.path.join(tmp, "cap-edit")
+    os.makedirs(cs)
+    png(os.path.join(cs, "a.png"), (200, 20, 20))
+    open(os.path.join(cs, "a.txt"), "w", encoding="utf-8", newline="\n").write("red_hair\n")
+    cs_out = os.path.join(tmp, "cap-edit-out")
+    main(["--images", cs, "--out", cs_out, "--mode", "convert"], tagger_factory=no_tagger)
+    open(os.path.join(cs, "a.txt"), "w", encoding="utf-8", newline="\n").write("green_hair\n")
+    main(["--images", cs, "--out", cs_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+    check("green hair" in open(os.path.join(cs_out, "a.txt"), encoding="utf-8").read(),
+          "resume notices a source caption edit even when the image is unchanged")
+
+    # --- a deleted manifest makes resume untrustworthy ---------------------
+    nm = os.path.join(tmp, "no-manifest")
+    os.makedirs(nm)
+    nm_img = os.path.join(nm, "b.png")
+    png(nm_img, (200, 20, 20))
+    open(os.path.join(nm, "b.txt"), "w", encoding="utf-8", newline="\n").write("red_hair\n")
+    nm_out = os.path.join(tmp, "no-manifest-out")
+    main(["--images", nm, "--out", nm_out, "--mode", "convert"], tagger_factory=no_tagger)
+    os.remove(os.path.join(nm_out, "dataset-manifest.json"))
+    png(nm_img, (20, 200, 20))
+    open(os.path.join(nm, "b.txt"), "w", encoding="utf-8", newline="\n").write("green_hair\n")
+    try:
+        main(["--images", nm, "--out", nm_out, "--mode", "convert", "--resume"],
+             tagger_factory=no_tagger)
+        check(False, "resume without a manifest is refused")
+    except SystemExit as exc:
+        check("manifest" in str(exc), "resume without a manifest is refused")
+
+    # --- a changed uncaptioned image needs the tagger again -----------------
+    uc = os.path.join(tmp, "uncaptioned")
+    os.makedirs(uc)
+    uc_img = os.path.join(uc, "c.png")
+    png(uc_img, (200, 20, 20))
+    uc_out = os.path.join(tmp, "uncaptioned-out")
+    main(["--images", uc, "--out", uc_out, "--mode", "auto"], tagger_factory=lambda name: ColourTagger())
+    first_caption = open(os.path.join(uc_out, "c.txt"), encoding="utf-8").read()
+    png(uc_img, (20, 200, 20))
+    code = main(["--images", uc, "--out", uc_out, "--mode", "auto", "--resume"],
+                tagger_factory=lambda name: ColourTagger())
+    second_caption = open(os.path.join(uc_out, "c.txt"), encoding="utf-8").read()
+    check(code == 0 and "green" in second_caption and "red" in first_caption,
+          "a changed uncaptioned image reloads the tagger and gets a new caption")
+
+    # --- a failed entry stays failed until a real repair --------------------
+    rp = os.path.join(tmp, "repeat")
+    os.makedirs(rp)
+    rp_img = os.path.join(rp, "d.png")
+    png(rp_img, (200, 20, 20))
+    rp_out = os.path.join(tmp, "repeat-out")
+    main(["--images", rp, "--out", rp_out, "--mode", "auto"],
+         tagger_factory=lambda name: ColourTagger())
+    png(rp_img, (20, 200, 20))
+    failed = main(["--images", rp, "--out", rp_out, "--mode", "auto", "--resume"],
+                  tagger_factory=dead_tagger)
+    still_stale = open(os.path.join(rp_out, "d.txt"), encoding="utf-8").read()
+    repaired = main(["--images", rp, "--out", rp_out, "--mode", "auto", "--resume"],
+                    tagger_factory=lambda name: ColourTagger())
+    final_caption = open(os.path.join(rp_out, "d.txt"), encoding="utf-8").read()
+    check(failed != 0, "a resume that cannot regenerate reports failure")
+    check("red" in still_stale, "the failed run does not pretend the old caption is fresh")
+    check(repaired == 0 and "green" in final_caption,
+          "the next successful resume actually repairs the caption")
+
+    # --- settings that change captions block a resume ----------------------
+    try:
+        main(["--images", rp, "--out", rp_out, "--mode", "auto", "--resume", "--type", "style"],
+             tagger_factory=lambda name: ColourTagger())
+        check(False, "a settings change is refused on resume")
+    except SystemExit as exc:
+        check("settings" in str(exc), "a settings change is refused on resume")
 
     # --- dry run ------------------------------------------------------------
     dry_out = os.path.join(tmp, "dry")

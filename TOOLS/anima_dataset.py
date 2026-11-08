@@ -293,20 +293,35 @@ def image_is_readable(path: str) -> tuple[bool, str]:
         return False, "%s: %s" % (type(exc).__name__, exc)
 
 
-def load_previous(out: str) -> dict[str, dict]:
-    """Source hashes and captions from the last run in this output folder.
+def load_previous(out: str) -> tuple[dict[str, dict], dict]:
+    """Entries and settings from the last run in this output folder.
 
-    Resume uses this to tell "already done" apart from "the input changed under us".
+    Resume uses these to tell "already done" apart from "the input changed under us".
+    An unreadable or missing manifest returns nothing, which resume treats as untrusted.
     """
     path = os.path.join(out, "dataset-manifest.json")
     if not os.path.isfile(path):
-        return {}
+        return {}, {}
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        return {e["out_image"]: e for e in data.get("entries", []) if e.get("out_image")}
-    except (OSError, ValueError, KeyError):
-        return {}
+        entries = {e["out_image"]: e for e in data.get("entries", []) if e.get("out_image")}
+        return entries, data.get("settings") or {}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}, {}
+
+
+def config_signature(args) -> dict:
+    """Everything that changes what a caption says.
+
+    Resume refuses to mix captions built under different settings, because a caption
+    from another `--type` or `--threshold` is not the caption this run would produce.
+    """
+    return {"mode": args.mode, "type": args.type, "trigger": normalize_tag(args.trigger),
+            "concept": args.concept.strip(), "append_concept": args.append_concept,
+            "threshold": args.threshold, "character_threshold": args.character_threshold,
+            "max_tags": args.max_tags, "exclude": sorted(args.exclude),
+            "drop_artists": args.drop_artists, "tagger": args.tagger}
 
 
 def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
@@ -315,16 +330,38 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
     The output folder, the review file, the manifest and the zip all read this list,
     so a caption in the archive can never disagree with the caption on disk.
 
-    The tagger is initialised only when at least one image actually needs inference:
-    a grabber export that already has every caption must work with no ONNX Runtime,
-    no weights and no GPU.
+    Resume is only trusted when the previous manifest exists, matches the current
+    settings, and recorded a successful entry whose source image *and* source caption
+    are unchanged. Anything else is recomputed from the source, and a caption the user
+    edited by hand is kept but reported as a conflict.
+
+    The tagger is initialised only when at least one image actually needs inference,
+    after every kind is known - including images that only need it because they changed.
     """
     images = list_images(args.images, skip=args.out)
     if args.limit:
         images = images[: args.limit]
     problems: list[str] = []
 
-    prev = load_previous(args.out) if args.resume else {}
+    prev, prev_settings = ({}, {})
+    if args.resume:
+        prev, prev_settings = load_previous(args.out)
+        existing = []
+        if os.path.isdir(args.out):
+            existing = [n for n in os.listdir(args.out) if n.lower().endswith(".txt")]
+        if existing and not prev:
+            raise SystemExit(
+                "--resume needs a readable dataset-manifest.json in %s; without it there is no "
+                "way to tell an edited caption from a stale one. Rerun with --force to rebuild "
+                "from the sources, or --out to a new folder." % args.out)
+        signature = config_signature(args)
+        if prev_settings and prev_settings != signature:
+            changed = sorted(k for k in set(prev_settings) | set(signature)
+                             if prev_settings.get(k) != signature.get(k))
+            raise SystemExit(
+                "the captions in %s were built with different settings (%s); rerun with --force "
+                "to rebuild them under the current settings." % (args.out, ", ".join(changed)))
+
     taken: set[str] = set()
     plan = []
     for path in images:
@@ -333,21 +370,33 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         out_caption_rel = os.path.splitext(rel)[0] + ".txt"
         has_txt = os.path.isfile(txt)
         digest = sha256_of(path)
-        previous = prev.get(rel) if args.resume else None
-        resumed = bool(args.resume and os.path.isfile(os.path.join(args.out, out_caption_rel)))
-        if resumed and previous and previous.get("source_sha256") not in (None, digest):
-            kind = "changed"
-        elif resumed:
-            kind = "resumed"
-        elif args.mode == "convert":
-            kind = "grabber" if has_txt else "missing-caption"
+        caption_digest = sha256_of(txt) if has_txt else None
+        if args.mode == "convert":
+            base = "grabber" if has_txt else "missing-caption"
         elif args.mode == "retag":
-            kind = "tag"
+            base = "tag"
         else:  # auto
-            kind = "grabber" if has_txt else "tag"
+            base = "grabber" if has_txt else "tag"
+
+        previous = prev.get(rel)
+        out_caption_path = os.path.join(args.out, out_caption_rel)
+        kind = base
+        if args.resume and os.path.isfile(out_caption_path) and previous:
+            unchanged = (previous.get("source_sha256") == digest
+                         and previous.get("source_caption_sha256") == caption_digest)
+            if previous.get("status") != "ok":
+                kind = base          # a failed entry is never reused, however often it is rerun
+            elif unchanged:
+                kind = "resumed"
+            else:
+                kept_tags, _ = read_caption_file(out_caption_path)
+                if kept_tags and ", ".join(kept_tags) != (previous.get("caption") or "").strip():
+                    kind = "conflict"
+                else:
+                    kind = base
         plan.append({"path": path, "rel": rel, "txt": txt, "has_txt": has_txt,
-                     "out_caption": out_caption_rel, "kind": kind,
-                     "sha": digest, "previous": previous})
+                     "out_caption": out_caption_rel, "kind": kind, "sha": digest,
+                     "caption_sha": caption_digest, "previous": previous})
 
     needs_inference = any(item["kind"] == "tag" for item in plan)
     tagger = None
@@ -369,11 +418,12 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
     unclassified_seen: set[str] = set()
     for item in plan:
         path, rel = item["path"], item["rel"]
+        previous = item["previous"] or {}
         entry = {"image": os.path.basename(path), "source_path": path,
                  "out_rel": rel, "out_caption": item["out_caption"],
                  "caption": "", "tags": [], "origin": "", "notes": [],
                  "status": "ok", "source_sha256": item["sha"],
-                 "unclassified": []}
+                 "source_caption_sha256": item["caption_sha"], "unclassified": []}
 
         if item["kind"] == "resumed":
             tags, cap_problems = read_caption_file(os.path.join(args.out, item["out_caption"]))
@@ -385,21 +435,26 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
             entries.append(entry)
             continue
 
-        if item["kind"] == "changed":
-            # The image changed since the last run. Keep a caption the user edited by hand,
-            # but say so; otherwise regenerate from the current source.
+        if item["kind"] == "conflict":
+            # Your caption, a source that moved under it: keep the work, say so, ship nothing.
             kept_tags, _ = read_caption_file(os.path.join(args.out, item["out_caption"]))
-            was = (item["previous"] or {}).get("caption", "").strip()
-            entry["notes"].append("source image changed since the last run")
-            if kept_tags and ", ".join(kept_tags) != was:
-                entry.update({"tags": kept_tags, "origin": "grabber", "caption": ", ".join(kept_tags),
-                              "status": "conflict"})
-                problems.append(
-                    "%s: you edited this caption and the image changed too; kept your caption, "
-                    "excluded from the archive - resolve and rerun" % entry["image"])
-                entries.append(entry)
-                continue
-            item["kind"] = ("grabber" if item["has_txt"] else "tag") if args.mode != "convert"                 else ("grabber" if item["has_txt"] else "missing-caption")
+            entry.update({"tags": kept_tags, "origin": "grabber",
+                          "caption": ", ".join(kept_tags), "status": "conflict"})
+            entry["notes"].append("you edited this caption and its source changed too")
+            problems.append(
+                "%s: you edited this caption and its source changed too; kept your caption, "
+                "excluded from the archive - resolve and rerun" % entry["image"])
+            entries.append(entry)
+            continue
+
+        if previous:
+            if previous.get("source_sha256") != item["sha"]:
+                entry["notes"].append("source image changed since the last run")
+            if previous.get("source_caption_sha256") != item["caption_sha"]:
+                entry["notes"].append("source caption changed since the last run")
+            if previous.get("status") != "ok":
+                entry["notes"].append("rebuilt after an earlier failure (%s)"
+                                      % previous.get("status"))
 
         ok, why = image_is_readable(path)
         if not ok:
@@ -549,6 +604,7 @@ def build_manifest(args, entries: list[dict], weights_sha: str | None = None) ->
         "append_concept": bool(args.append_concept),
         "tagger": args.tagger if args.mode in ("auto", "retag") else None,
         "tagger_weights_sha256": weights_sha,
+        "settings": config_signature(args),
         "threshold": args.threshold,
         "character_threshold": args.character_threshold,
         "max_tags": args.max_tags,
@@ -560,6 +616,7 @@ def build_manifest(args, entries: list[dict], weights_sha: str | None = None) ->
                      "out_caption": e["out_caption"], "caption": e["caption"],
                      "tags": e["tags"], "origin": e["origin"], "status": e["status"],
                      "notes": e["notes"], "source_sha256": e["source_sha256"],
+                     "source_caption_sha256": e["source_caption_sha256"],
                      "unclassified": e.get("unclassified", [])} for e in entries],
         "warnings": dataset_warnings(entries),
     }
