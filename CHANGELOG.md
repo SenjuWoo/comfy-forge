@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.5.9 - caption a LoRA dataset from a folder
+
+Training LoRAs on Civitai needs captions; producing them by hand for a few hundred
+images is the slow part. This adds the front half and nothing else: no trainer, no
+dependency on ComfyUI's Python environment, no upload.
+
+`TOOLS/anima_dataset.py` walks a folder, runs a WD14 v3 tagger over every image, and
+writes a `.txt` beside it: trigger word, your concept sentence, then tags sorted by
+confidence. `--zip` also produces the archive Civitai's trainer takes, with images,
+captions, `trigger.txt` and a manifest.
+
+Captions warn about the failures that quietly ruin a LoRA - a tag present in every
+caption (it gets baked in), captions with almost no tags, and images where the tagger
+had no confidence at all.
+
+Tagger weights are Apache-2.0 and installed outside the repository by
+`TOOLS/Install-Tagger.ps1`; inference uses the ONNX Runtime ComfyUI already ships.
+
+Verified on six renders: `eva02` 1.3 s/image, `swinv2` 0.7 s/image on CPU, captions
+read `1girl, red eyes, school uniform, cherry blossoms, white hair` for a schoolgirl
+portrait. A normalised-RGB input makes the same model answer `monochrome, no humans`
+for a colour image - the tool reads BGR at 0-255, which is what WD14 expects.
+
+`TESTS/test_dataset_prep.py` covers tag filtering, caption order, the leak warning,
+resume, dry-run and the archive, using a stub tagger so CI never downloads weights.
+
 ## v0.5.8 - metadata that was never written, a test that never wrote
 
 Three findings from review of 0.5.7, each reproduced before the fix.
