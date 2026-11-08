@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.16 - a corrupt image never reaches the tagger
+
+Regression introduced by 0.5.15, reproduced on the released build first.
+
+Moving validation to the end of `build_entries()` meant an unreadable image could be handed
+to the tagger first. WD14's preprocessing opens the file with PIL, so a folder holding one
+good uncaptioned PNG and one corrupt PNG died with an uncaught
+`UnidentifiedImageError` instead of reporting the bad file. Reproduced with a tagger that
+genuinely decodes its input.
+
+Sources are now decoded once, up front, before any resume, conflict or inference work. An
+unreadable image is recorded as `unreadable` with the decoder's reason, skipped, and the run
+exits non-zero; the other images are processed normally and the corrupt one never enters the
+archive. The caption check after the build stays where it was, so a manually resolved conflict
+is still validated - images are simply no longer decoded twice.
+
+### Verified
+
+```
+probe_v0516.py on 0.5.15  UnidentifiedImageError, bad_marked_unreadable false   -> FAIL
+probe_v0516.py on 0.5.16  no crash, exit 2, bad unreadable, good exported       -> PASS
+test_dataset_prep.py      83 assertions                                        -> PASS
+smoke_mixed + probe_v0510/0512/0514/0515  still PASS                           -> PASS
+```
 ## v0.5.15 - a resolved conflict is still validated
 
 One hole from the 0.5.14 audit, reproduced on the released build first.

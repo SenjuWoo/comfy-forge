@@ -69,6 +69,21 @@ def dead_tagger(name):
     raise SystemExit("no tagger in this test run")
 
 
+class PilTagger:
+    """Opens the image bytes like WD14's preprocessing does, so a corrupt file raises
+    instead of being silently skipped."""
+    tags = [("1girl", 0), ("solo", 0)]
+
+    def __init__(self, name=None):
+        pass
+
+    def predict(self, path):
+        from PIL import Image
+        with Image.open(path) as im:
+            im.load()
+        return {"1girl": 0.9, "solo": 0.8}
+
+
 def png(path, colour=(120, 40, 40)):
     from PIL import Image
     Image.new("RGB", (48, 48), colour).save(path)
@@ -450,6 +465,25 @@ try:
     forced = main(["--images", ns, "--out", ns_out, "--mode", "convert", "--force"], tagger_factory=no_tagger)
     check(forced == 0 and "green hair" in open(nested_caption, encoding="utf-8").read(),
           "--force rebuilds a nested dataset on purpose")
+
+    # --- a corrupt image must never reach the tagger -----------------------
+    pl = os.path.join(tmp, "pre-tagger")
+    os.makedirs(pl)
+    png(os.path.join(pl, "good.png"), (30, 160, 60))
+    open(os.path.join(pl, "bad.png"), "wb").write(b"\x89PNG corrupt bytes for the tagger")
+    pl_out = os.path.join(tmp, "pre-tagger-out")
+    pl_zip = os.path.join(tmp, "pre-tagger.zip")
+    code = main(["--images", pl, "--out", pl_out, "--mode", "auto", "--zip", pl_zip],
+                tagger_factory=lambda name: PilTagger())
+    pl_manifest = json.load(open(os.path.join(pl_out, "dataset-manifest.json"), encoding="utf-8"))
+    statuses = {e["image"]: e["status"] for e in pl_manifest["entries"]}
+    check(code == 2, "a corrupt image fails the run instead of raising from the tagger")
+    check(statuses.get("bad.png") == "unreadable", "the corrupt image is marked unreadable")
+    check(statuses.get("good.png") == "ok", "the valid image is still processed")
+    check(os.path.isfile(os.path.join(pl_out, "good.txt")), "the valid image gets its caption")
+    import zipfile as _zip3
+    check(not os.path.isfile(pl_zip) or "bad.png" not in _zip3.ZipFile(pl_zip).namelist(),
+          "the corrupt image never enters the archive")
 
     # --- dry run ------------------------------------------------------------
     dry_out = os.path.join(tmp, "dry")

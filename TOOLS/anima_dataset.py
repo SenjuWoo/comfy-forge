@@ -343,6 +343,10 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         images = images[: args.limit]
     problems: list[str] = []
 
+    # Decode each source once, up front: the tagger would otherwise raise on a corrupt
+    # file before anything had a chance to report it.
+    readable = {path: image_is_readable(path) for path in images}
+
     prev, prev_settings = ({}, {})
     if args.resume:
         prev, prev_settings = load_previous(args.out)
@@ -404,7 +408,8 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
                     kind = base
         plan.append({"path": path, "rel": rel, "txt": txt, "has_txt": has_txt,
                      "out_caption": out_caption_rel, "kind": kind, "sha": digest,
-                     "caption_sha": caption_digest, "previous": previous})
+                     "caption_sha": caption_digest, "previous": previous,
+                     "readable": readable[path]})
 
     needs_inference = any(item["kind"] == "tag" for item in plan)
     tagger = None
@@ -432,6 +437,13 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
                  "caption": "", "tags": [], "origin": "", "notes": [],
                  "status": "ok", "source_sha256": item["sha"],
                  "source_caption_sha256": item["caption_sha"], "unclassified": []}
+
+        if not item["readable"][0]:
+            entry["status"] = "unreadable"
+            entry["notes"].append(item["readable"][1])
+            problems.append("%s: %s" % (entry["image"], item["readable"][1]))
+            entries.append(entry)
+            continue
 
         if item["kind"] == "resumed":
             tags, cap_problems = read_caption_file(os.path.join(args.out, item["out_caption"]))
@@ -516,20 +528,14 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
             problems.append("%s: caption ended up empty" % entry["image"])
         entries.append(entry)
 
-    # Every entry that claims success is checked here, once: a manually resolved
-    # conflict is not proof that its image still decodes or that its caption is real.
+    # Every entry that claims success is checked here, once. Images were decoded up
+    # front; a manually resolved conflict is not proof that its caption is usable.
     for entry in entries:
         if entry["status"] != "ok":
             continue
         if not entry["caption"].strip():
             entry["status"] = "empty-caption"
             problems.append("%s: caption is empty" % entry["image"])
-            continue
-        readable, why = image_is_readable(entry["source_path"])
-        if not readable:
-            entry["status"] = "unreadable"
-            entry["notes"].append(why)
-            problems.append("%s: %s" % (entry["image"], why))
 
     if unclassified_seen:
         problems.append(
