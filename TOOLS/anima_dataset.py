@@ -348,7 +348,8 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         prev, prev_settings = load_previous(args.out)
         existing = []
         if os.path.isdir(args.out):
-            existing = [n for n in os.listdir(args.out) if n.lower().endswith(".txt")]
+            existing = [f for _root, _dirs, files in os.walk(args.out)
+                        for f in files if f.lower().endswith(".txt")]
         if existing and not prev:
             raise SystemExit(
                 "--resume needs a readable dataset-manifest.json in %s; without it there is no "
@@ -384,7 +385,14 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         if args.resume and os.path.isfile(out_caption_path) and previous:
             unchanged = (previous.get("source_sha256") == digest
                          and previous.get("source_caption_sha256") == caption_digest)
-            if previous.get("status") != "ok":
+            status = previous.get("status")
+            if status == "conflict":
+                # Unresolved stays unresolved: rerunning must not overwrite the caption you
+                # kept. Only editing that caption settles it; --force rebuilds from source.
+                kept_tags, _ = read_caption_file(out_caption_path)
+                still_mine = kept_tags and ", ".join(kept_tags) == (previous.get("caption") or "").strip()
+                kind = "conflict" if still_mine else "resolved"
+            elif status != "ok":
                 kind = base          # a failed entry is never reused, however often it is rerun
             elif unchanged:
                 kind = "resumed"
@@ -444,6 +452,14 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
             problems.append(
                 "%s: you edited this caption and its source changed too; kept your caption, "
                 "excluded from the archive - resolve and rerun" % entry["image"])
+            entries.append(entry)
+            continue
+
+        if item["kind"] == "resolved":
+            # You edited a conflicted caption, which is the one way to settle it by hand.
+            tags, _ = read_caption_file(os.path.join(args.out, item["out_caption"]))
+            entry.update({"tags": tags, "origin": "manual", "caption": ", ".join(tags)})
+            entry["notes"].append("you resolved an earlier conflict")
             entries.append(entry)
             continue
 
@@ -611,7 +627,7 @@ def build_manifest(args, entries: list[dict], weights_sha: str | None = None) ->
         "images_seen": len(entries),
         "images_exported": len(ok),
         "sources": {s: sum(1 for e in ok if e["origin"] == s)
-                    for s in ("grabber", "tagger", "grabber+tagger", "resumed")},
+                    for s in ("grabber", "tagger", "grabber+tagger", "resumed", "manual")},
         "entries": [{"image": e["image"], "out_image": e["out_rel"],
                      "out_caption": e["out_caption"], "caption": e["caption"],
                      "tags": e["tags"], "origin": e["origin"], "status": e["status"],

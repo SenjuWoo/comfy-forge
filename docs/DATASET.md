@@ -92,14 +92,22 @@ of every source image *and* every source caption:
   green image never keeps `red hair`.
 - **source `.txt` changed, image untouched** — the exported caption is regenerated too.
 - **image changed, caption hand-edited** — your caption is kept, the entry is marked
-  `conflict`, excluded from the archive, and the run exits non-zero. Resolve it and rerun.
+  `conflict`, excluded from the archive, and the run exits non-zero.
 - **caption emptied** — marked `empty-caption`, excluded from the archive, non-zero exit.
-- **no readable manifest** — resume refuses to run. Without history there is no way to tell
-  your edit from a stale caption, so it stops and asks for `--force` (rebuild from source)
+- **no readable manifest** — resume refuses to run, at any folder depth and even for a
+  corrupt manifest file. Without history there is no way to tell your edit from a stale
+  caption, so it stops before writing anything and asks for `--force` (rebuild from source)
   or a new `--out`.
 - **settings changed** — `--type`, `--trigger`, `--concept`, thresholds, `--max-tags`,
   `--exclude`, `--drop-artists` or the tagger are recorded in the manifest. Resume refuses to
   mix captions built under different ones.
+
+**Resolving a conflict** is deliberate, never automatic. Rerunning alone changes nothing: the
+caption stays exactly as you left it and the run keeps exiting non-zero. Two ways out:
+
+- edit that caption to what you actually want — the next `--resume` accepts it as yours,
+  syncs the image, and clears the conflict;
+- `--force` rebuilds the whole output from the sources, discarding the kept caption.
 
 An entry that failed stays failed. It is marked in the manifest, and the next `--resume`
 rebuilds it from source instead of treating it as done — so a run that could not regenerate a
