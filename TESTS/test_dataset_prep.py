@@ -141,6 +141,57 @@ try:
     check(any(e["origin"] == "resumed" for e in resume_manifest["entries"]),
           "resumed entries are recorded as such")
 
+    # --- resume must not pair a changed image with a stale caption ----------
+    rb = os.path.join(tmp, "resume-b")
+    os.makedirs(rb)
+    rb_img = os.path.join(rb, "r.png")
+    png(rb_img, (200, 30, 30))
+    open(os.path.join(rb, "r.txt"), "w", encoding="utf-8", newline="\n").write("red_hair\n")
+    rb_out = os.path.join(tmp, "resume-b-out")
+    main(["--images", rb, "--out", rb_out, "--mode", "convert"], tagger_factory=no_tagger)
+    png(rb_img, (30, 200, 30))
+    open(os.path.join(rb, "r.txt"), "w", encoding="utf-8", newline="\n").write("green_hair\n")
+    main(["--images", rb, "--out", rb_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+    check(sha(os.path.join(rb_out, "r.png")) == sha(rb_img), "resume refreshes a changed image")
+    check("green hair" in open(os.path.join(rb_out, "r.txt"), encoding="utf-8").read(),
+          "resume does not keep a stale caption beside a changed image")
+
+    # --- an emptied resumed caption is refused, not archived ----------------
+    re_src = os.path.join(tmp, "resume-empty")
+    os.makedirs(re_src)
+    png(os.path.join(re_src, "e.png"))
+    open(os.path.join(re_src, "e.txt"), "w", encoding="utf-8", newline="\n").write("1girl, solo\n")
+    re_out = os.path.join(tmp, "resume-empty-out")
+    main(["--images", re_src, "--out", re_out, "--mode", "convert"], tagger_factory=no_tagger)
+    open(os.path.join(re_out, "e.txt"), "w", encoding="utf-8", newline="\n").write("   \n")
+    re_zip = os.path.join(tmp, "resume-empty.zip")
+    code = main(["--images", re_src, "--out", re_out, "--mode", "convert", "--resume",
+                 "--zip", re_zip], tagger_factory=no_tagger)
+    check(code != 0, "an empty resumed caption makes the run fail")
+    re_manifest = json.load(open(os.path.join(re_out, "dataset-manifest.json"), encoding="utf-8"))
+    check(re_manifest["entries"][0]["status"] == "empty-caption", "the empty caption is marked incomplete")
+    import zipfile as _zip
+    check(not os.path.isfile(re_zip) or "e.txt" not in _zip.ZipFile(re_zip).namelist(),
+          "an empty caption never reaches the archive")
+
+    # --- a hand-edited caption on a changed image is kept and reported ------
+    ce_src = os.path.join(tmp, "resume-conflict")
+    os.makedirs(ce_src)
+    ce_img = os.path.join(ce_src, "c.png")
+    png(ce_img, (90, 90, 90))
+    open(os.path.join(ce_src, "c.txt"), "w", encoding="utf-8", newline="\n").write("grey_hair\n")
+    ce_out = os.path.join(tmp, "resume-conflict-out")
+    main(["--images", ce_src, "--out", ce_out, "--mode", "convert"], tagger_factory=no_tagger)
+    open(os.path.join(ce_out, "c.txt"), "w", encoding="utf-8", newline="\n").write("my own caption\n")
+    png(ce_img, (250, 250, 250))
+    code = main(["--images", ce_src, "--out", ce_out, "--mode", "convert", "--resume"],
+                tagger_factory=no_tagger)
+    check(open(os.path.join(ce_out, "c.txt"), encoding="utf-8").read().strip() == "my own caption",
+          "a hand-edited caption survives a changed image")
+    check(code != 0, "the conflict is reported rather than passed silently")
+    ce_manifest = json.load(open(os.path.join(ce_out, "dataset-manifest.json"), encoding="utf-8"))
+    check(ce_manifest["entries"][0]["status"] == "conflict", "the conflict is recorded in the manifest")
+
     # --- same stem, two extensions -----------------------------------------
     collide = os.path.join(tmp, "collide")
     os.makedirs(collide)

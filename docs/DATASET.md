@@ -47,9 +47,21 @@ installed.
 | type | caption policy |
 |---|---|
 | `character` (default) | trigger + every tag; anything that varies is still described |
-| `style` | trigger is **not** added; copyright and character tags are dropped so a made-up identity is not forced onto every image |
+| `style` | trigger + general tags; copyright and character tags are dropped when their category is known |
 | `outfit` | trigger + every tag, so the outfit stays fixed while subject, pose and background stay described |
 | `object` | same as outfit |
+
+**The trigger is used for every type**, style included — a style token is exactly what a
+style LoRA needs, so `--type style --trigger mystyle` keeps `mystyle`.
+
+**Tags named by the concept move to the front** of the caption, after the trigger. If the
+concept says "painterly fantasy", a `painterly` tag leads. That is the whole mechanism: the
+tool matches words, it does not understand the concept and it invents nothing.
+
+**Style filtering needs category data.** Categories come from the tagger's CSV, which is read
+without loading the model, so `convert` mode can filter too. With no CSV at all nothing is
+filtered — every tag is kept and listed in `_review.tsv` with a warning, because guessing
+which tag is a character name corrupts captions silently.
 
 The concept sentence is **not** pasted into every caption by default — that teaches the
 LoRA that the sentence is part of every image. Add `--append-concept` if you really want it.
@@ -65,6 +77,24 @@ because that is the exception Anima expects. Commas and newlines both split a ca
 `_review.tsv` opens in any spreadsheet: image, where the caption came from (`grabber`,
 `tagger`, `grabber+tagger`, `resumed`), tag count, the final caption, and notes. Edit the
 caption in the output folder and re-run with `--resume` — your edit is kept.
+
+## Rerunning and changed inputs
+
+Output is synchronised, not trusted. Every image is hashed against its source, so a `--force`
+run after you edit or replace a picture writes the new bytes instead of leaving the old
+picture beside the new caption. Captions and images are written through a temporary file and
+a rename, so an interrupted run cannot leave half a pair.
+
+`--resume` knows what the sources looked like last run, because every source hash is in the
+manifest:
+
+- **image changed, caption untouched** — the caption is regenerated from the new source, so a
+  green image never keeps `red hair`.
+- **image changed, caption hand-edited** — your caption is kept, the entry is marked
+  `conflict`, excluded from the archive, and the run exits non-zero. Resolve it and rerun.
+- **caption emptied** — marked `empty-caption`, excluded from the archive, non-zero exit.
+
+An archive is only called verified when it actually holds pairs.
 
 ## The archive
 
@@ -84,8 +114,7 @@ must match, or the run fails instead of handing you a broken archive.
 | `--max-tags` | cap per caption, default 40 |
 | `--exclude` | tags to strip, e.g. `watermark,signature` |
 | `--drop-artists` | remove artist tags (artist LoRA bleed) |
-| `--link` | hard-link images instead of copying (same volume only) |
-| `--resume` | keep captions already in the output folder and record them |
+| `--resume` | keep captions already in the output folder; regenerate any whose source image changed |
 | `--force` | write into a non-empty output folder, refreshing anything whose source changed |
 | `--dry-run` | print the plan, write nothing |
 | `--zip` | write and verify the Civitai archive |
@@ -98,6 +127,20 @@ must match, or the run fails instead of handing you a broken archive.
 - **Images with no confident tags** — probably not the image you thought.
 - **Skipped images** — unreadable or missing captions; a partial run exits non-zero rather
   than claiming success.
+
+## What is deterministic and what is a model
+
+Three different things happen in this tool and they deserve separate names:
+
+- **Tag conversion is deterministic text work.** Underscores, commas, duplicates, whitespace,
+  `score_7`. Same input, same output, no model involved. This is what `--mode convert` does.
+- **Tagging is a vision model reading booru vocabulary.** WD14 v3 looks at pixels and predicts
+  danbooru tags with scores. It knows *what it sees*, not *what matters* - it will label a
+  character `1girl, long hair` and never tell you who she is.
+- **The concept is a word matcher, not understanding.** Tags containing a concept word move to
+  the front; the sentence is otherwise stored and, if asked, appended. No tag is invented and
+  no visual detail is inferred from the sentence. "Soft rim lighting" produces nothing unless
+  the tagger already found lighting tags.
 
 ## Limits worth knowing
 

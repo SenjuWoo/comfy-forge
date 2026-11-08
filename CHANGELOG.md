@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.5.12 - resume stops lying about what changed
+
+Two resume failures from the 0.5.11 audit, each reproduced on the released build first.
+
+### Resume paired a changed image with a stale caption
+
+Export `red_hair`, replace the picture with a green one and its source caption with
+`green_hair`, rerun with `--resume`: the output held the new green image and the old `red
+hair` caption, and the command returned success. Reproduced on 0.5.11.
+
+Resume now compares the current source hash against the hash recorded in the manifest, so it
+can tell "already done" from "the input changed":
+
+- image changed, caption untouched - the caption is regenerated from the new source;
+- image changed, caption hand-edited - the caption is kept, the entry is marked `conflict`,
+  excluded from the archive, and the run exits non-zero;
+- caption emptied - marked `empty-caption`, excluded from the archive, non-zero exit.
+
+Nothing is silently discarded and nothing is silently trusted.
+
+### Resume accepted an empty caption
+
+A whitespace-only `.txt` in the output folder was exported as an empty caption, archived, and
+reported as success. Reproduced. An empty resumed caption is now `empty-caption`, kept out of
+the archive, with a non-zero exit, and the archive is not advertised as verified when it holds
+no usable pairs.
+
+### Cleanup
+
+- `--link` is gone. A hard link shares bytes with the source, so editing the output would edit
+  the original - that breaks the one promise this tool makes. Copying is the only option now.
+- `docs/DATASET.md` no longer claims style mode drops the trigger; it has kept it since 0.5.11.
+- The doc now names the three different mechanisms: deterministic tag conversion, WD14 vision
+  tagging limited to booru vocabulary, and lexical concept matching that invents nothing.
+
+### Verified
+
+```
+probe_resume.py on 0.5.11  changed_image_does_not_keep_stale_caption false,
+                           empty_resumed_caption_rejected false,
+                           edited_caption_preserved_and_flagged false      -> FAIL
+probe_resume.py on 0.5.12  true, true, true                                -> PASS
+test_dataset_prep.py       55 assertions                                   -> PASS
+smoke_mixed.py             18 assertions                                   -> PASS
+probe_v0510.py             the three earlier blockers still fixed          -> PASS
+full suite                 merge, workflow, powershell, preflight 16/16    -> PASS
+```
 ## v0.5.11 - dataset prep that tells the truth about what it did
 
 Three blockers from 0.5.10, each reproduced on the released build before the fix, plus the
