@@ -165,32 +165,79 @@ def tags_from_scores(scores: dict[str, float], categories: dict[str, int],
 
 # ------------------------------------------------------------ caption policies
 
-def apply_policy(tags: list[str], categories: dict[str, int], concept_type: str,
-                 trigger: str, drop_artists: bool) -> list[str]:
-    """What survives for this kind of LoRA, before any trigger is added.
+def load_categories(name: str = "eva02") -> dict[str, int]:
+    """Tag categories from the tagger's CSV, without loading any model.
 
-    character - everything is signal: keep all tags.
-    style     - identity tags force a character onto every image, so copyright and
-                character-category tags go; artists go only when asked.
+    Convert mode has no ONNX Runtime and no weights, but the CSV alone is enough to
+    know that `hatsune_miku` is a character tag and `1girl` is not.
+    """
+    _, csv_path = find_model_files(name)
+    if not os.path.isfile(csv_path):
+        return {}
+    out = {}
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                out[row["name"]] = int(row["category"])
+    except (OSError, ValueError, KeyError):
+        return {}
+    return out
+
+
+STOPWORDS = {"a", "an", "the", "of", "and", "or", "with", "in", "on", "for", "to",
+             "art", "style", "image", "illustration", "original", "clean"}
+
+
+def concept_words(concept: str) -> list[str]:
+    """Words from the concept sentence that can be matched against tags."""
+    words = re.findall(r"[a-z0-9]+", concept.lower())
+    return [w for w in words if len(w) >= 3 and w not in STOPWORDS]
+
+
+def apply_policy(tags: list[str], categories: dict[str, int], concept_type: str,
+                 trigger: str, drop_artists: bool, concept: str = "") -> tuple[list[str], list[str]]:
+    """Tags kept for this kind of LoRA, and tags whose category could not be checked.
+
+    character - everything is signal.
+    style     - copyright/character tags force an identity onto every image, so they
+                go when their category is known. Unknown categories are returned as
+                `unclassified` so the caller can warn instead of pretending.
     outfit/   - the subject varies, the concept does not: keep everything.
     object
+
+    Tags matching a word from the concept are moved to the front: the concept says
+    what this LoRA is about, so what it names matters more than the rest.
     """
-    out = list(tags)
+    out = [t for t in tags if not trigger or t != normalize_tag(trigger)]
+    unclassified: list[str] = []
     if concept_type == "style":
-        out = [t for t in out if categories.get(t.replace(" ", "_"), CAT_GENERAL)
-               not in (CAT_COPYRIGHT, CAT_CHARACTER)]
+        if not categories:
+            # No category table at all: we cannot tell a character name from a pose.
+            # Keep everything and say so, rather than claiming a filter we did not do.
+            unclassified = list(out)
+        else:
+            out = [t for t in out
+                   if categories.get(t.replace(" ", "_"), CAT_GENERAL)
+                   not in (CAT_COPYRIGHT, CAT_CHARACTER)]
     if drop_artists:
         out = [t for t in out if categories.get(t.replace(" ", "_"), CAT_GENERAL) != CAT_ARTIST]
-    if trigger:
-        out = [t for t in out if t != normalize_tag(trigger)]
-    return out
+    words = set(concept_words(concept))
+    if words:
+        named = [t for t in out if words & set(re.findall(r"[a-z0-9]+", t))]
+        rest = [t for t in out if t not in named]
+        out = named + rest
+    return out, unclassified
 
 
 def compose_caption(tags: list[str], concept_type: str, trigger: str, concept: str,
                     append_concept: bool) -> str:
-    """Trigger first for the concept kinds, then the concept if asked, then tags."""
+    """Trigger first, then the concept if asked, then tags.
+
+    The trigger is used for every concept type: a style LoRA wants its trigger word
+    exactly as much as a character LoRA does.
+    """
     parts = []
-    if trigger and concept_type in ("character", "outfit", "object"):
+    if trigger:
         parts.append(normalize_tag(trigger))
     if append_concept and concept:
         parts.append(concept.strip().rstrip(","))
@@ -251,71 +298,89 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
 
     The output folder, the review file, the manifest and the zip all read this list,
     so a caption in the archive can never disagree with the caption on disk.
+
+    The tagger is initialised only when at least one image actually needs inference:
+    a grabber export that already has every caption must work with no ONNX Runtime,
+    no weights and no GPU.
     """
     images = list_images(args.images, skip=args.out)
     if args.limit:
         images = images[: args.limit]
     problems: list[str] = []
-    entries: list[dict] = []
-
-    tagger = None
-    categories: dict[str, int] = {}
-    if args.mode in ("auto", "retag"):
-        factory = tagger_factory or Tagger
-        try:
-            tagger = factory(args.tagger)
-            categories = {name: cat for name, cat in getattr(tagger, "tags", [])}
-        except SystemExit as exc:
-            if args.mode == "retag":
-                raise
-            problems.append("tagger unavailable (%s); only existing captions were used" % exc)
-            tagger = None
 
     taken: set[str] = set()
+    plan = []
     for path in images:
         rel = out_rel_for(path, args.images, taken)
         txt = os.path.splitext(path)[0] + ".txt"
-        has_txt = os.path.isfile(txt)
         out_caption_rel = os.path.splitext(rel)[0] + ".txt"
-        entry = {"image": os.path.basename(path), "source_path": path,
-                 "out_rel": rel, "out_caption": out_caption_rel,
-                 "caption": "", "tags": [], "origin": "", "notes": [], "status": "ok"}
+        has_txt = os.path.isfile(txt)
+        resumed = bool(args.resume and os.path.isfile(os.path.join(args.out, out_caption_rel)))
+        if resumed:
+            kind = "resumed"
+        elif args.mode == "convert":
+            kind = "grabber" if has_txt else "missing-caption"
+        elif args.mode == "retag":
+            kind = "tag"
+        else:  # auto
+            kind = "grabber" if has_txt else "tag"
+        plan.append({"path": path, "rel": rel, "txt": txt, "has_txt": has_txt,
+                     "out_caption": out_caption_rel, "kind": kind})
 
-        # Resume: an existing caption in the output folder wins over doing the work again.
-        out_caption_path = os.path.join(args.out, out_caption_rel)
-        if args.resume and os.path.isfile(out_caption_path):
-            tags, cap_problems = read_caption_file(out_caption_path)
+    needs_inference = any(item["kind"] == "tag" for item in plan)
+    tagger = None
+    categories = load_categories(args.tagger)
+    if needs_inference:
+        factory = tagger_factory or Tagger
+        try:
+            tagger = factory(args.tagger)
+            categories = {name: cat for name, cat in getattr(tagger, "tags", [])} or categories
+        except SystemExit as exc:
+            if args.mode == "retag":
+                raise
+            problems.append("tagger unavailable (%s); those images were left uncaptioned" % exc)
+            for item in plan:
+                if item["kind"] == "tag":
+                    item["kind"] = "missing-caption"
+
+    entries: list[dict] = []
+    unclassified_seen: set[str] = set()
+    for item in plan:
+        path, rel = item["path"], item["rel"]
+        entry = {"image": os.path.basename(path), "source_path": path,
+                 "out_rel": rel, "out_caption": item["out_caption"],
+                 "caption": "", "tags": [], "origin": "", "notes": [],
+                 "status": "ok", "source_sha256": sha256_of(path),
+                 "unclassified": []}
+
+        if item["kind"] == "resumed":
+            tags, cap_problems = read_caption_file(os.path.join(args.out, item["out_caption"]))
             entry.update({"tags": tags, "origin": "resumed", "notes": cap_problems,
                           "caption": ", ".join(tags)})
             entries.append(entry)
             continue
 
-        existing_tags: list[str] = []
-        if has_txt:
-            existing_tags, cap_problems = read_caption_file(txt)
-            entry["notes"].extend(cap_problems)
-            problems.extend("%s: %s" % (os.path.basename(txt), p) for p in cap_problems)
+        ok, why = image_is_readable(path)
+        if not ok:
+            entry["status"] = "unreadable"
+            entry["notes"].append(why)
+            problems.append("%s: %s" % (entry["image"], why))
+            entries.append(entry)
+            continue
 
-        if args.mode == "convert":
-            if not has_txt:
-                entry["status"] = "missing-caption"
-                problems.append("%s: no caption (convert mode does not invent one)" % entry["image"])
-                entries.append(entry)
-                continue
-            tags, origin = existing_tags, "grabber"
-        elif args.mode == "retag" or (args.mode == "auto" and not has_txt):
-            if tagger is None:
-                entry["status"] = "missing-caption"
-                problems.append("%s: no caption and no tagger" % entry["image"])
-                entries.append(entry)
-                continue
-            ok, why = image_is_readable(path)
-            if not ok:
-                entry["status"] = "unreadable"
-                entry["notes"].append(why)
-                problems.append("%s: %s" % (entry["image"], why))
-                entries.append(entry)
-                continue
+        existing_tags: list[str] = []
+        if item["has_txt"]:
+            existing_tags, cap_problems = read_caption_file(item["txt"])
+            entry["notes"].extend(cap_problems)
+            problems.extend("%s: %s" % (os.path.basename(item["txt"]), p) for p in cap_problems)
+
+        if item["kind"] == "missing-caption":
+            entry["status"] = "missing-caption"
+            problems.append("%s: no caption (convert mode does not invent one)" % entry["image"])
+            entries.append(entry)
+            continue
+
+        if item["kind"] == "tag":
             predicted = tags_from_scores(tagger.predict(path), categories, args.threshold,
                                          args.character_threshold, args.exclude, args.max_tags)
             if existing_tags:
@@ -329,18 +394,33 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         else:
             tags, origin = existing_tags, "grabber"
 
-        tags = apply_policy(tags, categories, args.type, args.trigger, args.drop_artists)
+        tags, unclassified = apply_policy(tags, categories, args.type, args.trigger,
+                                          args.drop_artists, args.concept)
+        entry["unclassified"] = unclassified
+        if unclassified:
+            unclassified_seen.update(unclassified)
         caption = compose_caption(tags, args.type, args.trigger, args.concept, args.append_concept)
         entry.update({"tags": tags, "caption": caption, "origin": origin})
         if not caption:
             entry["status"] = "empty-caption"
             problems.append("%s: caption ended up empty" % entry["image"])
         entries.append(entry)
+
+    if unclassified_seen:
+        problems.append(
+            "style mode could not classify %d tag(s) (%s); they were kept and listed in the review file"
+            % (len(unclassified_seen), ", ".join(sorted(unclassified_seen)[:8])))
     return entries, problems
 
 
 def write_dataset(entries: list[dict], args) -> tuple[list[str], list[str]]:
-    """Copy images and write converted captions into the output folder."""
+    """Copy images and write converted captions into the output folder.
+
+    A destination is refreshed whenever its bytes no longer match the source, so
+    `--force` after editing an image cannot leave the old picture next to the new
+    caption. Writes go through a temporary file and a replace, so an interrupted run
+    never leaves a half-written pair behind.
+    """
     written, problems = [], []
     for entry in entries:
         if entry["status"] != "ok":
@@ -349,16 +429,29 @@ def write_dataset(entries: list[dict], args) -> tuple[list[str], list[str]]:
         caption_out = os.path.join(args.out, entry["out_caption"])
         os.makedirs(os.path.dirname(image_out) or args.out, exist_ok=True)
         try:
-            if not os.path.exists(image_out):
+            stale = True
+            if os.path.exists(image_out):
+                try:
+                    stale = sha256_of(image_out) != entry["source_sha256"]
+                except OSError:
+                    stale = True
+            if stale:
+                if os.path.exists(image_out):
+                    entry["notes"].append("image refreshed from source")
                 if args.link:
                     try:
                         os.link(entry["source_path"], image_out)
+                        stale = False
                     except OSError:
-                        shutil.copy2(entry["source_path"], image_out)
-                else:
-                    shutil.copy2(entry["source_path"], image_out)
-            with open(caption_out, "w", encoding="utf-8", newline="\n") as f:
+                        stale = False
+                        shutil.copy2(entry["source_path"], image_out + ".part")
+                        os.replace(image_out + ".part", image_out)
+                if stale:
+                    shutil.copy2(entry["source_path"], image_out + ".part")
+                    os.replace(image_out + ".part", image_out)
+            with open(caption_out + ".part", "w", encoding="utf-8", newline="\n") as f:
                 f.write(entry["caption"] + "\n")
+            os.replace(caption_out + ".part", caption_out)
             written.append(entry["out_rel"])
         except OSError as exc:
             problems.append("%s: %s" % (entry["out_rel"], exc))
@@ -428,7 +521,8 @@ def build_manifest(args, entries: list[dict], weights_sha: str | None = None) ->
         "entries": [{"image": e["image"], "out_image": e["out_rel"],
                      "out_caption": e["out_caption"], "caption": e["caption"],
                      "tags": e["tags"], "origin": e["origin"], "status": e["status"],
-                     "notes": e["notes"]} for e in entries],
+                     "notes": e["notes"], "source_sha256": e["source_sha256"],
+                     "unclassified": e.get("unclassified", [])} for e in entries],
         "warnings": dataset_warnings(entries),
     }
 
@@ -448,7 +542,11 @@ def export_zip(out_dir: str, manifest: dict, zip_path: str) -> str:
 
 
 def verify_zip(zip_path: str, manifest: dict) -> list[str]:
-    """Reopen the archive and check every pair against the manifest."""
+    """Reopen the archive and check every pair against the manifest.
+
+    Captions are compared as text and images by hash: a file with the right name and
+    the wrong bytes is exactly the failure a name check cannot see.
+    """
     problems = []
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
@@ -457,6 +555,10 @@ def verify_zip(zip_path: str, manifest: dict) -> list[str]:
                 continue
             if entry["out_image"] not in names:
                 problems.append("missing image in archive: " + entry["out_image"])
+            else:
+                digest = hashlib.sha256(zf.read(entry["out_image"])).hexdigest()
+                if digest != entry["source_sha256"]:
+                    problems.append("image bytes differ from the source: " + entry["out_image"])
             if entry["out_caption"] not in names:
                 problems.append("missing caption in archive: " + entry["out_caption"])
                 continue

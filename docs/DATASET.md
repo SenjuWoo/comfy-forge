@@ -36,7 +36,9 @@ already ships. **Convert mode needs none of this.**
 | `retag` | tagger adds to existing tags as a baseline; nothing is dropped silently | yes |
 
 `retag` keeps your tags and appends new predictions, recording how many it added. It never
-replaces a tag you already have.
+replaces a tag you already have. `auto` and `convert` load no ONNX Runtime at all when every
+image already has a caption - a pure grabber folder works on a machine with no tagger
+installed.
 
 ## Concept types
 
@@ -84,7 +86,7 @@ must match, or the run fails instead of handing you a broken archive.
 | `--drop-artists` | remove artist tags (artist LoRA bleed) |
 | `--link` | hard-link images instead of copying (same volume only) |
 | `--resume` | keep captions already in the output folder and record them |
-| `--force` | write into a non-empty output folder |
+| `--force` | write into a non-empty output folder, refreshing anything whose source changed |
 | `--dry-run` | print the plan, write nothing |
 | `--zip` | write and verify the Civitai archive |
 

@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.5.11 - dataset prep that tells the truth about what it did
+
+Three blockers from 0.5.10, each reproduced on the released build before the fix, plus the
+concept handling that was documented but not implemented.
+
+### Auto mode demanded ONNX Runtime for a folder it did not need to tag
+
+`build_entries()` constructed the tagger before checking whether any image lacked a caption,
+so a grabber export with complete captions died with `ModuleNotFoundError: onnxruntime`.
+Reproduced with `onnxruntime` blocked: `auto` exited with an ImportError while holding every
+caption it needed.
+
+The tool now plans first and loads the tagger only if at least one image actually needs
+inference. A fully captioned folder runs with no ONNX Runtime, no weights and no GPU.
+
+### A corrupt image could be exported and called verified
+
+Image validation only ran on the inference path. `--mode convert` with a broken PNG and a
+valid `.txt` reported success, and the zip verifier checked filenames and captions, not bytes.
+
+Every image is now validated before export in every mode. Corruption is reported with the
+decoder's reason, the entry is excluded from the archive, and the run exits non-zero. The
+verifier hashes the archived image bytes against the source, so a file with the right name
+and the wrong contents fails.
+
+### --force left stale images beside fresh captions
+
+`write_dataset()` skipped any destination that already existed. Change a picture, rerun with
+`--force`, and the output kept the old image with the new caption - the worst possible pairing
+for training.
+
+Destinations are now compared by hash and refreshed when the source differs, with source
+hashes recorded in the manifest. Captions and images are written through a temporary file and
+an atomic rename, so an interrupted run cannot leave half a pair. `--resume` keeps captions
+you edited and still revalidates and reports every entry.
+
+### The concept sentence now changes the captions
+
+The concept was recorded and then mostly ignored. Two real changes, both documented:
+
+- Tags matching a word from the concept move to the front of the caption, after the trigger.
+  Say "painterly fantasy" and a `painterly` tag leads.
+- Style filtering uses tag categories read straight from the tagger's CSV - no ORT, no model
+  load - so `convert` mode can drop a `hatsune miku` tag too. With no CSV present nothing is
+  filtered; the tags are kept and the review file says so.
+
+The trigger now applies to **every** concept type. Previously `--type style` silently dropped
+a trigger the user had typed; a style token is exactly what a style LoRA needs.
+
+### Verified
+
+```
+probe_v0510.py on 0.5.10  auto_without_onnxruntime false, corrupt_image_rejected false,
+                          force_refreshes_image false        -> FAIL
+probe_v0510.py on 0.5.11  true, true, true                    -> PASS
+test_dataset_prep.py      24 assertions                       -> PASS
+smoke_mixed.py            18 assertions, mixed grabber folder -> PASS
+```
+
+`smoke_mixed.py` runs a folder holding existing captions, a missing caption, a corrupt image, an
+edited image, an edited caption, plus style and character concepts through `--zip`, `--force` and
+`--resume`, and hashes every source before and after to prove nothing was written to it.
 ## v0.5.10 - dataset prep that cannot damage a grabber folder
 
 Three bugs in 0.5.9, each reproduced on the released build before the fix, plus the
