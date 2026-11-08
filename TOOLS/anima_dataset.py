@@ -472,14 +472,6 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
                 entry["notes"].append("rebuilt after an earlier failure (%s)"
                                       % previous.get("status"))
 
-        ok, why = image_is_readable(path)
-        if not ok:
-            entry["status"] = "unreadable"
-            entry["notes"].append(why)
-            problems.append("%s: %s" % (entry["image"], why))
-            entries.append(entry)
-            continue
-
         existing_tags: list[str] = []
         if item["has_txt"]:
             existing_tags, cap_problems = read_caption_file(item["txt"])
@@ -523,6 +515,21 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
             entry["status"] = "empty-caption"
             problems.append("%s: caption ended up empty" % entry["image"])
         entries.append(entry)
+
+    # Every entry that claims success is checked here, once: a manually resolved
+    # conflict is not proof that its image still decodes or that its caption is real.
+    for entry in entries:
+        if entry["status"] != "ok":
+            continue
+        if not entry["caption"].strip():
+            entry["status"] = "empty-caption"
+            problems.append("%s: caption is empty" % entry["image"])
+            continue
+        readable, why = image_is_readable(entry["source_path"])
+        if not readable:
+            entry["status"] = "unreadable"
+            entry["notes"].append(why)
+            problems.append("%s: %s" % (entry["image"], why))
 
     if unclassified_seen:
         problems.append(

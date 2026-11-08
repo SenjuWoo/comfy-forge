@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.5.15 - a resolved conflict is still validated
+
+One hole from the 0.5.14 audit, reproduced on the released build first.
+
+### Resolved conflicts skipped validation
+
+The `resolved` branch accepted a caption and marked the entry `ok` without checking that the
+image still decodes or that the caption has content. A conflict could therefore be "resolved"
+into an invalid pair:
+
+- empty the kept caption, resume: exit 0, `status: ok`, empty caption inside a verified zip;
+- corrupt the source image, edit the caption to resolve, resume: exit 0, unreadable bytes
+  inside a verified zip.
+
+Both reproduced. The zip hash proves the bytes match the source, not that the source is an
+image - so the archive check could not catch either case.
+
+### One validation point instead of a branch
+
+The per-branch readability check is gone. After every entry is built, each one claiming
+success is checked once: non-empty caption, then a real decode of its source image. Failures
+become `empty-caption` or `unreadable`, are excluded from the archive and make the run exit
+non-zero. Manually written captions are never rewritten - a rejected image leaves your caption
+exactly where it was.
+
+### Verified
+
+```
+probe_v0515.py on 0.5.14  empty_resolved_rejected false, corrupt_resolved_rejected false,
+                          both not_archived false                          -> FAIL
+probe_v0515.py on 0.5.15  all seven true                                   -> PASS
+test_dataset_prep.py      78 assertions                                    -> PASS
+smoke_mixed.py            PASS
+probe_v0510 / probe_resume / probe_v0512 / probe_v0514  still PASS         -> PASS
+merge, workflow, powershell suites  PASS
+```
 ## v0.5.14 - a conflict stays a conflict until you say otherwise
 
 Two resume holes from the 0.5.13 audit, each reproduced on the released build first.

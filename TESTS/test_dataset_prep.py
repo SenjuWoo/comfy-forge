@@ -370,6 +370,55 @@ try:
     check(settled == 0 and open(os.path.join(cf_out, "a.txt"), encoding="utf-8").read().strip() == "my final caption",
           "editing the kept caption resolves the conflict")
 
+    # --- a resolved conflict still gets validated --------------------------
+    vr = os.path.join(tmp, "validated-resolve")
+    os.makedirs(vr)
+    vr_img = os.path.join(vr, "a.png")
+    png(vr_img, (200, 20, 20))
+    open(os.path.join(vr, "a.txt"), "w", encoding="utf-8", newline="\n").write("red_hair\n")
+    vr_out = os.path.join(tmp, "validated-resolve-out")
+    main(["--images", vr, "--out", vr_out, "--mode", "convert"], tagger_factory=no_tagger)
+    open(os.path.join(vr_out, "a.txt"), "w", encoding="utf-8", newline="\n").write("hand written\n")
+    png(vr_img, (20, 200, 20))
+    main(["--images", vr, "--out", vr_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+
+    # empty the kept caption, then resolve by rerunning
+    open(os.path.join(vr_out, "a.txt"), "w", encoding="utf-8", newline="\n").write("   \n")
+    vr_zip = os.path.join(tmp, "validated-resolve.zip")
+    code = main(["--images", vr, "--out", vr_out, "--mode", "convert", "--resume", "--zip", vr_zip],
+                tagger_factory=no_tagger)
+    vr_manifest = json.load(open(os.path.join(vr_out, "dataset-manifest.json"), encoding="utf-8"))
+    check(code != 0, "an emptied caption on a resolved conflict fails the run")
+    check(vr_manifest["entries"][0]["status"] == "empty-caption",
+          "the emptied caption is marked, not exported")
+    import zipfile as _zip2
+    check(not os.path.isfile(vr_zip) or "a.txt" not in _zip2.ZipFile(vr_zip).namelist(),
+          "the emptied caption never reaches the archive")
+
+    # corrupt the source image, then resolve the conflict by hand
+    cr = os.path.join(tmp, "validated-corrupt")
+    os.makedirs(cr)
+    cr_img = os.path.join(cr, "b.png")
+    png(cr_img, (200, 20, 20))
+    open(os.path.join(cr, "b.txt"), "w", encoding="utf-8", newline="\n").write("red_hair\n")
+    cr_out = os.path.join(tmp, "validated-corrupt-out")
+    main(["--images", cr, "--out", cr_out, "--mode", "convert"], tagger_factory=no_tagger)
+    open(os.path.join(cr_out, "b.txt"), "w", encoding="utf-8", newline="\n").write("hand written\n")
+    open(cr_img, "wb").write(b"\x89PNG not really a png")
+    main(["--images", cr, "--out", cr_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+    open(os.path.join(cr_out, "b.txt"), "w", encoding="utf-8", newline="\n").write("resolved by hand\n")
+    cr_zip = os.path.join(tmp, "validated-corrupt.zip")
+    code = main(["--images", cr, "--out", cr_out, "--mode", "convert", "--resume", "--zip", cr_zip],
+                tagger_factory=no_tagger)
+    cr_manifest = json.load(open(os.path.join(cr_out, "dataset-manifest.json"), encoding="utf-8"))
+    check(code != 0, "a corrupt image on a resolved conflict fails the run")
+    check(cr_manifest["entries"][0]["status"] == "unreadable",
+          "the corrupt image is marked, not exported")
+    check(not os.path.isfile(cr_zip) or "b.png" not in _zip2.ZipFile(cr_zip).namelist(),
+          "the corrupt image never reaches the archive")
+    check(open(os.path.join(cr_out, "b.txt"), encoding="utf-8").read().strip() == "resolved by hand",
+          "the manual caption is preserved even when the image is rejected")
+
     # --- nested output captions without a manifest refuse before writing ----
     ns = os.path.join(tmp, "nested-src")
     os.makedirs(os.path.join(ns, "nested"))
