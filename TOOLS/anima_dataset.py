@@ -293,6 +293,22 @@ def image_is_readable(path: str) -> tuple[bool, str]:
         return False, "%s: %s" % (type(exc).__name__, exc)
 
 
+def load_previous(out: str) -> dict[str, dict]:
+    """Source hashes and captions from the last run in this output folder.
+
+    Resume uses this to tell "already done" apart from "the input changed under us".
+    """
+    path = os.path.join(out, "dataset-manifest.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return {e["out_image"]: e for e in data.get("entries", []) if e.get("out_image")}
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
 def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
     """One entry per image: where its caption came from and what it says.
 
@@ -308,6 +324,7 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         images = images[: args.limit]
     problems: list[str] = []
 
+    prev = load_previous(args.out) if args.resume else {}
     taken: set[str] = set()
     plan = []
     for path in images:
@@ -315,8 +332,12 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         txt = os.path.splitext(path)[0] + ".txt"
         out_caption_rel = os.path.splitext(rel)[0] + ".txt"
         has_txt = os.path.isfile(txt)
+        digest = sha256_of(path)
+        previous = prev.get(rel) if args.resume else None
         resumed = bool(args.resume and os.path.isfile(os.path.join(args.out, out_caption_rel)))
-        if resumed:
+        if resumed and previous and previous.get("source_sha256") not in (None, digest):
+            kind = "changed"
+        elif resumed:
             kind = "resumed"
         elif args.mode == "convert":
             kind = "grabber" if has_txt else "missing-caption"
@@ -325,7 +346,8 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         else:  # auto
             kind = "grabber" if has_txt else "tag"
         plan.append({"path": path, "rel": rel, "txt": txt, "has_txt": has_txt,
-                     "out_caption": out_caption_rel, "kind": kind})
+                     "out_caption": out_caption_rel, "kind": kind,
+                     "sha": digest, "previous": previous})
 
     needs_inference = any(item["kind"] == "tag" for item in plan)
     tagger = None
@@ -350,15 +372,34 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         entry = {"image": os.path.basename(path), "source_path": path,
                  "out_rel": rel, "out_caption": item["out_caption"],
                  "caption": "", "tags": [], "origin": "", "notes": [],
-                 "status": "ok", "source_sha256": sha256_of(path),
+                 "status": "ok", "source_sha256": item["sha"],
                  "unclassified": []}
 
         if item["kind"] == "resumed":
             tags, cap_problems = read_caption_file(os.path.join(args.out, item["out_caption"]))
             entry.update({"tags": tags, "origin": "resumed", "notes": cap_problems,
                           "caption": ", ".join(tags)})
+            if not tags:
+                entry["status"] = "empty-caption"
+                problems.append("%s: the resumed caption in the output folder is empty" % entry["image"])
             entries.append(entry)
             continue
+
+        if item["kind"] == "changed":
+            # The image changed since the last run. Keep a caption the user edited by hand,
+            # but say so; otherwise regenerate from the current source.
+            kept_tags, _ = read_caption_file(os.path.join(args.out, item["out_caption"]))
+            was = (item["previous"] or {}).get("caption", "").strip()
+            entry["notes"].append("source image changed since the last run")
+            if kept_tags and ", ".join(kept_tags) != was:
+                entry.update({"tags": kept_tags, "origin": "grabber", "caption": ", ".join(kept_tags),
+                              "status": "conflict"})
+                problems.append(
+                    "%s: you edited this caption and the image changed too; kept your caption, "
+                    "excluded from the archive - resolve and rerun" % entry["image"])
+                entries.append(entry)
+                continue
+            item["kind"] = ("grabber" if item["has_txt"] else "tag") if args.mode != "convert"                 else ("grabber" if item["has_txt"] else "missing-caption")
 
         ok, why = image_is_readable(path)
         if not ok:
@@ -377,6 +418,12 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         if item["kind"] == "missing-caption":
             entry["status"] = "missing-caption"
             problems.append("%s: no caption (convert mode does not invent one)" % entry["image"])
+            entries.append(entry)
+            continue
+
+        if item["kind"] == "tag" and tagger is None:
+            entry["status"] = "missing-caption"
+            problems.append("%s: caption needs regenerating but no tagger is loaded" % entry["image"])
             entries.append(entry)
             continue
 
@@ -438,17 +485,8 @@ def write_dataset(entries: list[dict], args) -> tuple[list[str], list[str]]:
             if stale:
                 if os.path.exists(image_out):
                     entry["notes"].append("image refreshed from source")
-                if args.link:
-                    try:
-                        os.link(entry["source_path"], image_out)
-                        stale = False
-                    except OSError:
-                        stale = False
-                        shutil.copy2(entry["source_path"], image_out + ".part")
-                        os.replace(image_out + ".part", image_out)
-                if stale:
-                    shutil.copy2(entry["source_path"], image_out + ".part")
-                    os.replace(image_out + ".part", image_out)
+                shutil.copy2(entry["source_path"], image_out + ".part")
+                os.replace(image_out + ".part", image_out)
             with open(caption_out + ".part", "w", encoding="utf-8", newline="\n") as f:
                 f.write(entry["caption"] + "\n")
             os.replace(caption_out + ".part", caption_out)
@@ -586,7 +624,7 @@ def main(argv: list[str] | None = None, tagger_factory=None) -> int:
                          "retag: tagger merges into existing tags")
     ap.add_argument("--type", default="character", choices=TYPES)
     ap.add_argument("--trigger", default="",
-                    help="word for the concept; used for character/outfit/object")
+                    help="caption token for the concept; used for every --type, style included")
     ap.add_argument("--concept", default="", help="one sentence describing the shared idea")
     ap.add_argument("--append-concept", action="store_true",
                     help="add the concept sentence to every caption")
@@ -596,7 +634,6 @@ def main(argv: list[str] | None = None, tagger_factory=None) -> int:
     ap.add_argument("--max-tags", type=int, default=40)
     ap.add_argument("--exclude", default="", help="comma-separated tags to drop")
     ap.add_argument("--drop-artists", action="store_true")
-    ap.add_argument("--link", action="store_true", help="hard-link images instead of copying")
     ap.add_argument("--resume", action="store_true", help="keep captions already in --out")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true", help="write into a non-empty --out")
@@ -650,7 +687,10 @@ def main(argv: list[str] | None = None, tagger_factory=None) -> int:
             for problem in zip_problems:
                 print("  -", problem)
             return 1
-        print("archive verified:", args.zip_path)
+        if manifest["images_exported"]:
+            print("archive verified:", args.zip_path)
+        else:
+            print("archive written but holds no usable pairs:", args.zip_path)
 
     print("\n%d seen, %d exported to %s" % (len(entries), len(written), args.out))
     print("review:", review_path)
