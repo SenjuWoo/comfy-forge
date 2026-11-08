@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.5.14 - a conflict stays a conflict until you say otherwise
+
+Two resume holes from the 0.5.13 audit, each reproduced on the released build first.
+
+### A second resume destroyed the caption a conflict had preserved
+
+Export `red_hair`, edit the exported caption to `custom hand caption`, change the image,
+resume: exit 2, status `conflict`, caption kept - correct. Resume again without touching
+anything: exit 0, the caption was overwritten with `red hair` and the entry became `ok`.
+Reproduced.
+
+The conflict was recorded, but the next run treated `status != ok` as "recompute from source",
+which is right for a failure and wrong for your edit. Conflicts are now their own state: while
+the output caption still says what was preserved, every resume reports the same conflict and
+writes nothing. Resolving it is deliberate - edit that caption, or rebuild with `--force`.
+
+### Nested output folders escaped the manifest check
+
+The "no manifest, no resume" guard listed `.txt` files in the output root only. A dataset with
+`nested/a.png` and `nested/a.txt` slipped past it: delete the manifest, edit the nested
+caption, change the source, resume - exit 0 and the edit was overwritten. Reproduced.
+
+The check now walks the whole output tree, so any existing caption without a trustworthy
+manifest refuses the run before a single byte is written. A corrupt manifest behaves the same
+way. `--force` remains the deliberate rebuild.
+
+### Verified
+
+```
+probe_v0514.py on 0.5.13  conflict_survives_second false, third false,
+                          nested_no_manifest_refused false,
+                          nested_output_untouched false                     -> FAIL
+probe_v0514.py on 0.5.14  all eight true                                    -> PASS
+test_dataset_prep.py      71 assertions                                     -> PASS
+smoke_mixed.py            PASS
+probe_v0510 / probe_resume / probe_v0512  earlier blockers still fixed      -> PASS
+```
 ## v0.5.13 - resume trusts evidence, not assumptions
 
 Three resume failures from the 0.5.12 audit, each reproduced on the released build first.

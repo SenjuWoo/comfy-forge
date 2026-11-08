@@ -345,6 +345,63 @@ try:
     except SystemExit as exc:
         check("settings" in str(exc), "a settings change is refused on resume")
 
+    # --- an unresolved conflict survives repeated resumes -------------------
+    cf = os.path.join(tmp, "conflict-repeat")
+    os.makedirs(cf)
+    cf_img = os.path.join(cf, "a.png")
+    png(cf_img, (200, 20, 20))
+    open(os.path.join(cf, "a.txt"), "w", encoding="utf-8", newline="\n").write("red_hair\n")
+    cf_out = os.path.join(tmp, "conflict-repeat-out")
+    main(["--images", cf, "--out", cf_out, "--mode", "convert"], tagger_factory=no_tagger)
+    open(os.path.join(cf_out, "a.txt"), "w", encoding="utf-8", newline="\n").write("custom hand caption\n")
+    png(cf_img, (20, 200, 20))
+    first = main(["--images", cf, "--out", cf_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+    second = main(["--images", cf, "--out", cf_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+    third = main(["--images", cf, "--out", cf_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+    kept = open(os.path.join(cf_out, "a.txt"), encoding="utf-8").read().strip()
+    check(first != 0 and second != 0 and third != 0, "a conflict keeps failing on every resume")
+    check(kept == "custom hand caption", "repeated resumes never overwrite the kept caption")
+    cf_manifest = json.load(open(os.path.join(cf_out, "dataset-manifest.json"), encoding="utf-8"))
+    check(cf_manifest["entries"][0]["status"] == "conflict", "the conflict is still recorded, not resolved")
+
+    # editing the caption is the documented way to settle it
+    open(os.path.join(cf_out, "a.txt"), "w", encoding="utf-8", newline="\n").write("my final caption\n")
+    settled = main(["--images", cf, "--out", cf_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+    check(settled == 0 and open(os.path.join(cf_out, "a.txt"), encoding="utf-8").read().strip() == "my final caption",
+          "editing the kept caption resolves the conflict")
+
+    # --- nested output captions without a manifest refuse before writing ----
+    ns = os.path.join(tmp, "nested-src")
+    os.makedirs(os.path.join(ns, "nested"))
+    png(os.path.join(ns, "nested", "a.png"), (200, 20, 20))
+    open(os.path.join(ns, "nested", "a.txt"), "w", encoding="utf-8", newline="\n").write("red_hair\n")
+    ns_out = os.path.join(tmp, "nested-out")
+    main(["--images", ns, "--out", ns_out, "--mode", "convert"], tagger_factory=no_tagger)
+    nested_caption = os.path.join(ns_out, "nested", "a.txt")
+    open(nested_caption, "w", encoding="utf-8", newline="\n").write("hand written nested\n")
+    before = sha(nested_caption)
+    os.remove(os.path.join(ns_out, "dataset-manifest.json"))
+    open(os.path.join(ns, "nested", "a.txt"), "w", encoding="utf-8", newline="\n").write("green_hair\n")
+    try:
+        main(["--images", ns, "--out", ns_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+        check(False, "nested captions without a manifest refuse resume")
+    except SystemExit as exc:
+        check("manifest" in str(exc), "nested captions without a manifest refuse resume")
+    check(sha(nested_caption) == before, "the refusal writes nothing to the output")
+
+    open(os.path.join(ns_out, "dataset-manifest.json"), "w", encoding="utf-8").write("{not json")
+    try:
+        main(["--images", ns, "--out", ns_out, "--mode", "convert", "--resume"], tagger_factory=no_tagger)
+        check(False, "a corrupt manifest with nested captions refuses resume")
+    except SystemExit as exc:
+        check("manifest" in str(exc), "a corrupt manifest with nested captions refuses resume")
+    check(sha(nested_caption) == before, "a corrupt manifest leaves the output untouched")
+
+    # --- --force is the deliberate rebuild ---------------------------------
+    forced = main(["--images", ns, "--out", ns_out, "--mode", "convert", "--force"], tagger_factory=no_tagger)
+    check(forced == 0 and "green hair" in open(nested_caption, encoding="utf-8").read(),
+          "--force rebuilds a nested dataset on purpose")
+
     # --- dry run ------------------------------------------------------------
     dry_out = os.path.join(tmp, "dry")
     code = main(["--images", src, "--out", dry_out, "--mode", "convert", "--trigger", "t",
