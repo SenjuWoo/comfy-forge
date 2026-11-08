@@ -13,7 +13,8 @@ import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "TOOLS"))
 from anima_dataset import (  # noqa: E402
-    compose_caption, main, normalize_tag, normalize_tags, read_caption_file, verify_zip)
+    apply_policy, compose_caption, main, normalize_tag, normalize_tags, read_caption_file,
+    verify_zip)
 
 fail = 0
 
@@ -166,12 +167,27 @@ try:
 
     # --- concept types ------------------------------------------------------
     character = compose_caption(["1girl", "hatsune miku"], "character", "mychar", "a girl", False)
-    style = compose_caption(["1girl", "hatsune miku"], "style", "mychar", "lineart style", False)
+    style = compose_caption(["1girl"], "style", "mystyle", "painterly fantasy", False)
     check(character.startswith("mychar"), "character captions carry the trigger")
-    check(not style.startswith("mychar"), "style captions do not force a trigger")
+    check(style.startswith("mystyle"), "style captions carry their trigger too")
     check("a girl" not in character, "the concept sentence is not appended by default")
     check(compose_caption(["1girl"], "character", "mychar", "a girl", True).count("a girl") == 1,
           "the concept can be appended when asked")
+
+    # style policy: identity tags go when their category is known, and unknown tags
+    # come back so the caller can warn instead of pretending they were filtered
+    kept, unknown = apply_policy(["hatsune miku", "vocaloid", "1girl", "long hair"],
+                                 {"hatsune_miku": 4, "vocaloid": 3}, "style", "mystyle", False)
+    check(kept == ["1girl", "long hair"], "style drops classified character and copyright tags")
+    check(unknown == [], "classified tags are not reported as unknown")
+    kept, unknown = apply_policy(["hatsune miku", "1girl"], {}, "style", "mystyle", False)
+    check(unknown == ["hatsune miku", "1girl"], "with no category table, every tag is reported for review")
+    check("hatsune miku" in kept, "an unclassifiable tag is kept rather than silently dropped")
+
+    # the concept reorders what it names, rather than being ignored
+    ordered, _ = apply_policy(["1girl", "solo", "painterly", "long hair"], {}, "character",
+                              "", False, "a painterly fantasy style")
+    check(ordered[0] == "painterly", "tags named by the concept move to the front")
 
     # --- corrupt image ------------------------------------------------------
     broken = os.path.join(tmp, "broken")
