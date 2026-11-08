@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.5.10 - dataset prep that cannot damage a grabber folder
+
+Three bugs in 0.5.9, each reproduced on the released build before the fix, plus the
+grabber workflow the tool needed to have in the first place.
+
+### The source captions were overwritten
+
+Default behaviour wrote `.txt` next to the images, so pointing it at an imgbrd-grabber
+folder replaced the tags the grabber had collected. Reproduced: source caption hash
+changed after a plain run.
+
+Every run now writes to a separate output folder - `<images>/anima-dataset` by default,
+`--out` to choose - and refuses to write into a non-empty one without `--force`. Sources
+are never opened for writing.
+
+### The archive caption disagreed with the output caption
+
+`build_zip()` read captions from the image folder while `--out` had written them
+elsewhere, so a converted caption could pair with a different caption in the zip.
+Reproduced: archive body was `1girl, solo, long_hair...` while the output folder held the
+converted text.
+
+One entry list now drives the output folder, the review file, the manifest and the zip,
+so the caption in the archive is the caption that was written. `--zip` reopens the archive
+and fails the run if any pair is missing or differs.
+
+### Resume lost images from the manifest
+
+`--resume` skipped images that already had captions and dropped them from the manifest,
+so a resumed run could report zero images while the archive held all of them. Resume now
+records those entries as `resumed`, and the manifest counts every image it saw.
+
+### Grabber input, three modes
+
+- `auto` (default): convert an existing `.txt`, tag only the images without one.
+- `convert`: existing captions only. No tagger, no ONNX Runtime, no weights.
+- `retag`: tagger output merged into your tags as a baseline; additions are reported,
+  nothing is replaced silently.
+
+`--type character|style|outfit|object` changes the caption policy: style drops the trigger
+and character/copyright tags so a fictional identity is not forced onto every image, while
+character/outfit/object keep the trigger. The concept sentence is no longer pasted into
+every caption unless `--append-concept` is passed.
+
+Also handled: `score_7` keeps its underscore, duplicate tags collapse, empty or malformed
+captions are reported, `same.png`/`same.jpg` get separate caption pairs, unreadable images
+are excluded with the reason, EXIF rotation and alpha are applied before tagging, and a
+partial run exits non-zero instead of reporting success. `_review.tsv` lists every caption
+for inspection before training.
+
+### Verified
+
+```
+probe_p0.py on 0.5.9  FAIL  (source_caption_preserved false, zip mismatch, manifest 1)
+probe_p0.py on 0.5.10 PASS  (true, true, every image counted)
+test_dataset_prep.py  PASS  22 assertions, stub tagger, no weights
+real run, eva02       6/6 exported, archive verified, source caption byte-identical
+```
+
 ## v0.5.9 - caption a LoRA dataset from a folder
 
 Training LoRAs on Civitai needs captions; producing them by hand for a few hundred
