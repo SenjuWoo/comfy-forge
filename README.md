@@ -54,6 +54,21 @@ verifies each file by SHA-256, so re-running is cheap and safe.
 | `merge` | Write a merged `.safetensors` and refresh SwarmUI's model list |
 | `mcp` | Print a ready client config for the ComfyUI MCP server |
 
+## Captioning a LoRA dataset
+
+Point it at a folder of untagged images and a concept; it writes a caption beside every
+image, sized for Anima training. Training itself happens on Civitai — this is the
+front half.
+
+```
+powershell -File TOOLS/Install-Tagger.ps1          # once, ~1.2 GB, Apache-2.0 weights
+python TOOLS/anima_dataset.py --images "S:\my\shots" --trigger mychar ^
+  --concept "an original anime illustration" --zip mychar.zip
+```
+
+`--zip` also builds a Civitai-ready archive with images, captions, the trigger word and
+a manifest. Full options and limits: [docs/DATASET.md](docs/DATASET.md).
+
 ## What's in the box
 
 | | |
