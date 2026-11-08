@@ -3,7 +3,7 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.5.14). Since 0.5.1 the tag, VERSION, changelog
+**Version** — see `VERSION` (0.5.15). Since 0.5.1 the tag, VERSION, changelog
 heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and the
 `release-verify` workflow that runs on every tag.
 
