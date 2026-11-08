@@ -85,14 +85,25 @@ run after you edit or replace a picture writes the new bytes instead of leaving 
 picture beside the new caption. Captions and images are written through a temporary file and
 a rename, so an interrupted run cannot leave half a pair.
 
-`--resume` knows what the sources looked like last run, because every source hash is in the
-manifest:
+`--resume` knows what the sources looked like last run, because the manifest records a hash
+of every source image *and* every source caption:
 
 - **image changed, caption untouched** — the caption is regenerated from the new source, so a
   green image never keeps `red hair`.
+- **source `.txt` changed, image untouched** — the exported caption is regenerated too.
 - **image changed, caption hand-edited** — your caption is kept, the entry is marked
   `conflict`, excluded from the archive, and the run exits non-zero. Resolve it and rerun.
 - **caption emptied** — marked `empty-caption`, excluded from the archive, non-zero exit.
+- **no readable manifest** — resume refuses to run. Without history there is no way to tell
+  your edit from a stale caption, so it stops and asks for `--force` (rebuild from source)
+  or a new `--out`.
+- **settings changed** — `--type`, `--trigger`, `--concept`, thresholds, `--max-tags`,
+  `--exclude`, `--drop-artists` or the tagger are recorded in the manifest. Resume refuses to
+  mix captions built under different ones.
+
+An entry that failed stays failed. It is marked in the manifest, and the next `--resume`
+rebuilds it from source instead of treating it as done — so a run that could not regenerate a
+caption keeps reporting the problem until it can, rather than quietly passing on a second try.
 
 An archive is only called verified when it actually holds pairs.
 

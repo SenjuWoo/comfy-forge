@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.5.13 - resume trusts evidence, not assumptions
+
+Three resume failures from the 0.5.12 audit, each reproduced on the released build first.
+
+### A source caption edit was ignored
+
+Resume only compared images. Edit `red_hair` to `green_hair` in the grabber `.txt`, leave the
+picture alone, rerun with `--resume`: exit 0, exported caption still `red hair`. Reproduced.
+
+The manifest now records a hash of every source caption beside the image hash. A changed source
+caption regenerates the caption, unless you edited it by hand - then it is a `conflict`, kept,
+excluded and reported.
+
+### A deleted manifest made resume unsafe
+
+Delete `dataset-manifest.json`, change the image, update its `.txt`, resume: the old caption
+survived beside the new image and the run claimed success. Reproduced.
+
+Resume without a readable manifest is now refused outright, with the reason and the way out
+(`--force` to rebuild from source, or a new `--out`). There is no honest guess to make here.
+
+### A changed uncaptioned image failed, then "succeeded" stale
+
+The tagger decision was made before entries could be reclassified as needing inference, so a
+changed uncaptioned image hit `caption needs regenerating but no tagger is loaded`. Worse, that
+failed run rewrote the manifest with the new source hash, and the next resume reported success
+while serving the old caption. Both reproduced.
+
+Kinds are now resolved before the tagger decision, so nothing needs inference after the fact.
+Entries are only resumable when the previous run recorded them as `ok`; a failed entry stays
+invalid and is rebuilt on the next attempt instead of being blessed by the manifest it helped
+write.
+
+### Settings are part of the history
+
+`--type`, `--trigger`, `--concept`, thresholds, `--max-tags`, `--exclude`, `--drop-artists` and
+the tagger are recorded. Resume refuses to mix captions built under different settings, names
+the ones that differ, and asks for `--force`.
+
+### Verified
+
+```
+probe_v0512.py on 0.5.12  caption_edit false, no_manifest false, tagger_reload false,
+                          second_resume_repairs false, settings false   -> FAIL
+probe_v0512.py on 0.5.13  all true                                      -> PASS
+test_dataset_prep.py      62 assertions                                 -> PASS
+smoke_mixed.py            18 assertions                                 -> PASS
+probe_v0510.py / probe_resume.py  earlier blockers still fixed          -> PASS
+```
 ## v0.5.12 - resume stops lying about what changed
 
 Two resume failures from the 0.5.11 audit, each reproduced on the released build first.
