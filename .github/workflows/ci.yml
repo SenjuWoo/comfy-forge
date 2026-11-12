@@ -52,6 +52,9 @@ jobs:
       - name: Shipped workflow converts to an executable graph
         run: python TESTS/test_workflow_convert.py
 
+      - name: 3D generation lock
+        run: python TESTS/test_3d_generation.py
+
       - name: Dataset captions (no tagger weights needed)
         run: python TESTS/test_dataset_prep.py
 
