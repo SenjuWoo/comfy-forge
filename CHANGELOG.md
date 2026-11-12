@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.6.2 - Locked 3D generation settings; game-ready handoff
+
+The Pixal3D and Idol widgets stay on the stock values that produced the measured
+meshes (Pixal3D single-image axe: 699,878 tris, 4096 albedo). Those values are
+recorded in `presets/3d/generation.json` and checked by `TESTS/test_3d_generation.py`.
+Sampler, CFG, flow shift and the 700,000-triangle generation cap are not the
+size control.
+
+`TOOLS/game-ready.ps1` sends a finished `.glb` to Asset Forge `mesh-gameready`.
+Asset Forge runs Blender. This repo does not decimate or resize textures itself.
+A `.spz` is left as a preview.
+
+The default budget is `game`: 20,000 triangles and a 1024 texture. A result over
+that cap fails. `hero` is 30,000 and is not a Roblox mesh. `accessory` is 4,000.
+A 700,000-triangle sculpt does not pass. Rules: `docs/GAME-READY.md`.
+
+One measured prop (699,878 triangles, 61.5 MB, three maps at 4096 and 2048) went through the default command and came out at 17,000 triangles, 21,186 vertices, 6.2 MB, and three 1024 maps. Structural checks passed. The official glTF validator reported 0 errors and 0 warnings. Engine import was not run.
+
 ## v0.6.1 - 3D templates verified end-to-end; AssetForge decision guide
 
 The three 3D templates shipped in v0.6.0 were run end-to-end on this machine

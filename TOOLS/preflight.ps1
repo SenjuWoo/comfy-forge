@@ -51,6 +51,7 @@ Run-Check 'merge math'        $py @('TESTS\test_merge.py')
 Run-Check 'merge artifacts'   $py @('TESTS\test_merge_artifacts.py')
 Run-Check 'deps resolver'     $py @('TOOLS\check_deps.py', '--self-test')
 Run-Check 'workflow structure' $py @('TESTS\validate_workflows.py') 3
+Run-Check '3d generation lock' $py @('TESTS\test_3d_generation.py')
 Run-Check 'workflow convert'  $py @('TESTS\test_workflow_convert.py')
 Run-Check 'workflow lineage gate' $py @('TESTS\validate_workflows.py', '--self-test')
 Run-Check 'dependency lock'   $py @('TOOLS\validate-lock.py') 3

@@ -132,3 +132,11 @@ which for 2D sprites, procedural props, texture pipelines, engine exports — li
 **[PRODUCTION-WORKFLOWS.md](PRODUCTION-WORKFLOWS.md)**. Short version: **AssetForge for
 repetitive/QA-gated exports and procedural props; comfy-forge for generative art, AI
 renders and image→3D; the two in sequence when a 3D asset starts from a concept image.**
+
+A generated `.glb` is not game-ready. About 700,000 triangles fails. One command:
+
+```powershell
+powershell -File TOOLS\game-ready.ps1 -Input model.glb
+```
+
+Default cap: 20,000 triangles. Rules: [GAME-READY.md](GAME-READY.md).
