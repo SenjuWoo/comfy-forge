@@ -3,6 +3,10 @@
 comfy-forge does not download 3D weights for you. This page is the decision guide plus
 the one command that fetches everything, if you want it.
 
+The GLB these templates write is a sculpt, about 700,000 triangles. That file fails
+the game-ready gate. After it exists, run `TOOLS/game-ready.ps1` on the `.glb`.
+The default cap is 20,000 triangles. Rules: [GAME-READY.md](GAME-READY.md).
+
 Three templates, all present in `presets/3d/` (copies of the upstream ComfyUI workflow
 templates, MIT — see `presets/3d/NOTICE.md` for provenance):
 
@@ -109,8 +113,10 @@ atlas correctly captures the uniform white/gray mech (monochrome content — fin
 not a stress test for color fidelity). Multi-view's full-body consistency claim is by design,
 not measured here.
 
-The two Pixal3D `.glb` files weigh ~60 MB each — retopology + 2048 export are mandatory
-before engine use.
+The two Pixal3D `.glb` files weigh ~60 MB each and are about 700,000 triangles.
+That count is the sculpt. It does not pass the game-ready gate. Run
+`TOOLS/game-ready.ps1` on the `.glb`. The default hard cap is 20,000 triangles
+and a 1024 texture. See [GAME-READY.md](GAME-READY.md).
 
 Stock template settings were kept. The upstream templates already carry their tuning
 (`RescaleCFG` 0.5/0.7, `CFGOverride` 1/0.769/0.667, flow shift 5, euler + `ModelSamplingSD3`).

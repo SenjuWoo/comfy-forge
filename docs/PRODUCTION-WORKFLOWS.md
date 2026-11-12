@@ -30,16 +30,17 @@ Parametric, consistent silhouettes, deterministic, LODs built by the pipeline.
 (`texture-pack` for ORM, `image-prep` for sizing/webp, `glb-optimize` to pack it into the
 asset). comfy-forge owns generation; AssetForge packages and validates it.
 
-**One concept image → a game asset (hero rock, statue, sword)** → **comfy-forge** (`presets/3d/`,
-Pixal3D — see [3D-MODELS.md](3D-MODELS.md)) for the raw mesh, then **AssetForge**
-(`glb-inspect` → `blender-retopo-uv` for clean UVs → `glb-optimize`) to make it
-engine/game ready. Raw Pixal3D output is 700k+ triangles and needs retopology before it
-goes anywhere near a Roblox/Godot project.
+**One concept image → a game asset (hero rock, statue, sword, axe)** → **comfy-forge** (`presets/3d/`,
+Pixal3D — see [3D-MODELS.md](3D-MODELS.md)) for the raw mesh, then one command:
+`powershell -File TOOLS\game-ready.ps1 -Input model.glb`. That calls Asset Forge
+`mesh-gameready`. The raw file is about 700,000 triangles and **fails**. The default
+ships at 20,000 triangles or fewer. See [GAME-READY.md](GAME-READY.md).
 
 **Character with a turnaround sheet** → **comfy-forge** (Pixal3D multi-view from the
 [turnaround generator](https://github.com/Comfy-Org/workflow_templates)) then the same
-AssetForge tail. This is the only route in either tool for consistent character meshes,
-and realistic silhouette fidelity.
+`game-ready.ps1` command. That cap is for one prop mesh. A full character is a different
+budget, and this command does not guess one. The route is still the one in either tool
+for a consistent character mesh.
 
 **Sprites / icon atlases / UI textures for a 2D game** → **AssetForge**
 (`sprite-atlas`, `image-prep`) — deterministic, hashed, capped, no AI at all.
@@ -60,7 +61,7 @@ numbers, provenance and (optionally) `GLB-014` validation alongside the asset.
 Need an asset?
   ├── can a preset produce it?          → ASSETFORGE (blender-pipeline)
   ├── is it a texture/material look?     → comfy-forge generate → ASSETFORGE texture-pack → comfy-forge/AssetForge export
-  ├── is it a mesh from a concept image? → comfy-forge presets/3d (Pixal3D) → ASSETFORGE glb-optimize/blender-retopo-uv → export
+  ├── is it a mesh from a concept image? → comfy-forge presets/3d (Pixal3D) → TOOLS/game-ready.ps1 (Asset Forge mesh-gameready, 20000 triangles) → export
   └── is it sprites/UI/2D?               → ASSETFORGE sprite-atlas / image-prep
 ```
 

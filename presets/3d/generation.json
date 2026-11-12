@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "locked": "2026-11-12",
+  "note": "These are the stock Comfy-Org template widgets. The Pixal3D single-image run that used them produced the 699,878-triangle PBR axe. That count is a sculpt. It fails the game-ready gate. Do not retune sampler, CFG, flow shift, the 700000 decimate cap, or texture resolution to chase a smaller file. Size is Asset Forge recipe mesh-gameready, default budget game, hard cap 20000 triangles.",
+  "pixal3d": {
+    "ksampler": [
+      [43, "fixed", 12, 1, "euler", "normal", 1],
+      [42, "fixed", 20, 7.5, "euler", "normal", 1],
+      [56, "fixed", 12, 7.5, "euler", "normal", 1],
+      [42, "fixed", 12, 7.5, "euler", "simple", 1]
+    ],
+    "rescale_cfg": [[0.5], [0.7]],
+    "cfg_override": [[1, 0.769, 1], [1, 0.667, 1]],
+    "flow_shift": [5],
+    "voxel_to_mesh": ["basic", 0.6],
+    "remesh_resolution": 768,
+    "decimate": [700000, "midpoint"],
+    "unwrap": ["pec", 2048, 1, 0.0002],
+    "bake_voxel": [2048],
+    "bake_normal": [2048, 0.05, true],
+    "texture_resolution": [4096, "fixed"],
+    "smooth_normals": [180]
+  },
+  "idol": {
+    "splat_to_mesh": [384, 5, 0, 0.6, 500, 0.02, 2, true, 20]
+  },
+  "game_ready": {
+    "owner": "AssetForge",
+    "recipe": "mesh-gameready",
+    "default_budget": "game",
+    "triangle_cap": 20000,
+    "texture_cap": 1024,
+    "hero_triangle_cap": 30000,
+    "accessory_triangle_cap": 4000,
+    "note": "700000 is the sculpt inside the generator. A file over the budget cap fails. hero is a close-up override and is not a Roblox mesh. accessory is a worn Roblox accessory."
+  }
+}

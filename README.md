@@ -79,6 +79,14 @@ This repo carries three image-to-3D ComfyUI templates (`presets/3d/`, MIT, from 
 
 Guidance (full comparison and failure modes in **[docs/3D-MODELS.md](docs/3D-MODELS.md)**): **props → Pixal3D single image; characters → turnaround sheet → Pixal3D multi-view; previews → Idol.** Pixal3D is the better overall pick — Idol does not produce an unwrapped, PBR-textured mesh.
 
+The GLB is a sculpt, about 700,000 triangles. That file fails the game-ready gate. One command writes a mesh at or under 20,000 triangles:
+
+```powershell
+powershell -File TOOLS\game-ready.ps1 -Input model.glb
+```
+
+Rules: **[docs/GAME-READY.md](docs/GAME-READY.md)**. Do not change the generator widgets to chase a smaller file.
+
 Weights are separate downloads (none are in this repo):
 
 ```powershell
@@ -222,7 +230,7 @@ TOOLS/Install-3DModels.ps1       downloads the Idol/Pixal3D 3D weights (opt-in)
 presets/                         42 presets, hash-pinned manifest
 presets/3d/                      3D templates (Idol, Pixal3D) — MIT, from Comfy-Org workflow templates
 workflows/                       ComfyUI 4-way merge graph
-docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, 3D-MODELS.md, PRODUCTION-WORKFLOWS.md, banner, sample render
+docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, 3D-MODELS.md, GAME-READY.md, PRODUCTION-WORKFLOWS.md, banner, sample render
 TESTS/                           merge math, installer gate, PS parse, MCP handshake
 ```
 

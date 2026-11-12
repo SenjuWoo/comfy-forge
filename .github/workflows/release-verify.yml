@@ -43,6 +43,9 @@ jobs:
       - name: Shipped workflow converts to an executable graph
         run: python TESTS/test_workflow_convert.py
 
+      - name: 3D generation lock
+        run: python TESTS/test_3d_generation.py
+
       - name: Model install safety (includes real HTTP resume)
         shell: pwsh
         run: ./TESTS/Test-ModelInstall.ps1
