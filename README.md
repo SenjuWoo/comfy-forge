@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="comfy-kit — Anima starter kit for ComfyUI and SwarmUI" width="100%">
+  <img src="docs/banner.svg" alt="comfy-forge — Anima starter kit for ComfyUI and SwarmUI" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/SenjuWoo/comfy-kit/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/SenjuWoo/comfy-kit/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/SenjuWoo/comfy-kit/releases"><img alt="release" src="https://img.shields.io/github/v/release/SenjuWoo/comfy-kit?color=818cf8"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/SenjuWoo/comfy-kit?color=5eead4"></a>
+  <a href="https://github.com/SenjuWoo/comfy-forge/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/SenjuWoo/comfy-forge/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/SenjuWoo/comfy-forge/releases"><img alt="release" src="https://img.shields.io/github/v/release/SenjuWoo/comfy-forge?color=818cf8"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/SenjuWoo/comfy-forge?color=5eead4"></a>
   <img alt="powershell" src="https://img.shields.io/badge/PowerShell-5.1%2B-5391FE">
 </p>
 
@@ -66,17 +66,40 @@ python TOOLS/anima_dataset.py --images "S:\my\shots" --out "S:\my\shots-dataset"
 
 Existing grabber captions are converted; only images without one are tagged. `--mode convert` never loads a tagger, `--mode retag` merges into your tags instead of replacing them. `_review.tsv` shows every caption before you train. Full options and limits: [docs/DATASET.md](docs/DATASET.md).
 
+## 3D: image → 3D (Idol, Pixal3D)
+
+This repo carries three image-to-3D ComfyUI templates (`presets/3d/`, MIT, from the Comfy-Org workflow templates library) and a one-command setup for their weights:
+
+| | **Idol** (fine-tuned TripoSplat) | **Pixal3D single image** | **Pixal3D multi-view** |
+|---|---|---|---|
+| Output | Gaussian splat (`.spz`) + optional `.glb` | Textured `.glb` with full PBR maps + UVs | Same, consistent all around the mesh |
+| Input | 1 image | 1 image | turnaround sheet (4 views) |
+| Download | ~3.5 GB | ~9.8 GB | ~8 GB |
+| Best for | quick concept/AR previews | **game props and items** | **characters built from a turnaround sheet** |
+
+Guidance (full comparison and failure modes in **[docs/3D-MODELS.md](docs/3D-MODELS.md)**): **props → Pixal3D single image; characters → turnaround sheet → Pixal3D multi-view; previews → Idol.** Pixal3D is the better overall pick — Idol does not produce an unwrapped, PBR-textured mesh.
+
+Weights are separate downloads (none are in this repo):
+
+```powershell
+powershell -File TOOLS\Install-3DModels.ps1 -WhatIf   # see the exact list first
+powershell -File TOOLS\Install-3DModels.ps1 -Set pixal3d
+```
+
+**Status:** neither model has been run on this machine — SwarmUI/ComfyUI is not running here. The templates and file lists are verified against the upstream notes; renders are unverified.
+
 ## Working with AssetForge
 
-comfy-kit renders; [AssetForge](https://github.com/SenjuWoo/AssetForge) turns the result into a validated, engine-exportable game asset. AssetForge delegates its `comfy-generate` recipe to this repo, so the two are designed to sit side by side — AssetForge is a separate install and nothing about it lives in here.
+comfy-forge renders; [AssetForge](https://github.com/SenjuWoo/AssetForge) turns the result into a validated, engine-exportable game asset. AssetForge delegates its `comfy-generate` recipe to this repo, so the two are designed to sit side by side — AssetForge is a separate install and nothing about it lives in here.
 
-Install comfy-kit first (`install`, then `launch-windows.bat` for SwarmUI), then point AssetForge at this folder with `COMFY_KIT_ROOT` and its renders land inside your asset project instead of a loose folder of PNGs. Setup, the expected session, and what is and isn't verified: **[docs/ASSETFORGE.md](docs/ASSETFORGE.md)**.
+Install comfy-forge first (`install`, then `launch-windows.bat` for SwarmUI), then point AssetForge at this folder with `COMFY_KIT_ROOT` and its renders land inside your asset project instead of a loose folder of PNGs. Setup, the expected session, and what is and isn't verified: **[docs/ASSETFORGE.md](docs/ASSETFORGE.md)**.
 
 ## What's in the box
 
 | | |
 |---|---|
 | **42 presets** | Anima, FLUX.1/2, Krea 2, SDXL, Z-Image — shot parameters only, no workflow graph |
+| **3 image→3D templates** | `presets/3d/` — Idol (fine-tuned TripoSplat, Apache-2.0) and Pixal3D single-image/multi-view (MIT), plus `TOOLS/Install-3DModels.ps1` to download the weights |
 | **Anima installer** | 2.9B bf16 + Qwen3 0.6B encoder + Qwen Image VAE, pinned by hash |
 | **Merge tool** | Task arithmetic over up to four checkpoints, streamed write, provenance in metadata |
 | **ComfyUI graph** | `workflows/anima-4way-merge.json` for the node editor (`install` fetches the node pack) |
@@ -195,9 +218,11 @@ built against SwarmUI, which drives its own ComfyUI backend).
 TOOLS/image-stack.ps1            the CLI
 TOOLS/merge_anima.py             the merge engine
 TOOLS/Ensure-AnimaSwarmUI.ps1    model download and verification
+TOOLS/Install-3DModels.ps1       downloads the Idol/Pixal3D 3D weights (opt-in)
 presets/                         42 presets, hash-pinned manifest
+presets/3d/                      3D templates (Idol, Pixal3D) — MIT, from Comfy-Org workflow templates
 workflows/                       ComfyUI 4-way merge graph
-docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, banner, sample render
+docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, 3D-MODELS.md, banner, sample render
 TESTS/                           merge math, installer gate, PS parse, MCP handshake
 ```
 

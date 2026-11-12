@@ -625,7 +625,7 @@ def dataset_warnings(entries: list[dict]) -> list[str]:
 def build_manifest(args, entries: list[dict], weights_sha: str | None = None) -> dict:
     ok = [e for e in entries if e["status"] == "ok"]
     return {
-        "tool": "comfy-kit anima_dataset",
+        "tool": "comfy-forge anima_dataset",
         "mode": args.mode,
         "type": args.type,
         "trigger": args.trigger,

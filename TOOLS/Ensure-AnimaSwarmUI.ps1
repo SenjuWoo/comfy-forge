@@ -51,7 +51,7 @@ if (Test-Path -LiteralPath $common) {
   function Get-UabsStateRoot {
     if ($StateDir) { return $StateDir }
     $base = $env:LOCALAPPDATA; if (-not $base) { $base = $env:TEMP }
-    # comfy-kit owns its own state. An existing record from the old bundle path
+    # comfy-forge owns its own state. An existing record from the old bundle path
     # keeps being read there, so upgrades do not lose the model/download state.
     $own = Join-Path $base 'comfy-kit'
     $legacy = Join-Path $base 'Ultimate-AI-Starter-Bundle'

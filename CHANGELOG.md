@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.6.0 - comfy-kit is now comfy-forge; 3D image-to-model support
+
+Two things in one release:
+
+1. **Renamed: comfy-kit -> comfy-forge** (repository `SenjuWoo/comfy-kit` -> `SenjuWoo/comfy-forge`; GitHub redirects the old URL). On disk this checkout moves to `..\comfy-forge`. The `%LOCALAPPDATA%\comfy-kit\` state folder KEEPS its old name on purpose: the ~1.8 GB WD14 tagger weights and the install-state record live there, and renaming would force re-downloads. `COMFY_KIT_ROOT` likewise keeps its name - AssetForge reads it, and the env var is the compatibility contract.
+   - banner, README badges/URLs, docs, CLI help/comments, test identifiers and the default `client_id`/`User-Agent` strings now say comfy-forge.
+   - git history keeps the old name; CHANGELOG history is accurate to its period and was not rewritten.
+
+2. **New: 3D image-to-model support.** `presets/3d/` ships three ComfyUI templates (copies of the MIT workflow templates from Comfy-Org, with provenance in `presets/3d/NOTICE.md`), and `docs/3D-MODELS.md` compares them for real workflows:
+   - Idol (fine-tuned TripoSplat, Apache-2.0) - single image -> Gaussian splat; fastest, cheapest, previews/AR. Not a PBR mesh.
+   - Pixal3D single image (MIT) - one concept image -> textured `.glb` with full PBR maps + UVs. The recommendation for game props.
+   - Pixal3D multi-view (MIT) - a turnaround sheet -> consistent textured mesh. The recommendation for characters built from turnaround sheets (the Character Turnaround Sheet Generator template is the intended input).
+   Recommended pick overall: **Pixal3D**. Idol loses on shipping-quality axes (no unwrapped PBR mesh; splat-only native output).
+   - `TOOLS/Install-3DModels.ps1` downloads the weights opt-in (`-Set idol|pixal3d|trellis2|all`, `-WhatIf` lists first, resumable `curl -C -`). No 3D weights are committed.
+   - `README.md` gains a 3D section with the same decision table, and `docs/ASSETFORGE.md` keeps the AssetForge pairing accurate across the rename.
+   - IMPORTANT, HONEST STATUS: neither model has been run on this machine - SwarmUI/ComfyUI is not running. Templates, nodes and file lists are verified against the upstream notes; renders are UNVERIFIED.
+
+No code paths changed besides branding. Tests and preflight are unchanged.
+
 ## v0.5.17 - AssetForge, the documented companion
 
 AssetForge (https://github.com/SenjuWoo/AssetForge) is a separate toolkit for producing,
