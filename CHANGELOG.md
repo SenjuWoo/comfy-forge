@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.17 - AssetForge, the documented companion
+
+AssetForge (https://github.com/SenjuWoo/AssetForge) is a separate toolkit for producing,
+validating and exporting game assets. This release documents how the two work together and
+recommends the pairing - no code in comfy-kit changed beyond the README pointer.
+
+- New docs/ASSETFORGE.md: what AssetForge delegates to this repo (the
+  comfy-generate recipe runs image-stack.ps1 generate), how to make comfy-kit ready first
+  (install, then launch-windows.bat, then status), how to point AssetForge at this folder
+  (COMFY_KIT_ROOT, project integrations.comfy_kit, markers), a typical asset session, and
+  what AssetForge will and won't do.
+- README gains an AssetForge section and the layout list names DATASET.md/ASSETFORGE.md.
+- Verification table is honest: AssetForge delegating a render is UNVERIFIED on this
+  machine (SwarmUI is not running); the markers it needs are present; the CLI verbs
+  this repo ships are exercised by the existing test suite.
+
 ## v0.5.16 - a corrupt image never reaches the tagger
 
 Regression introduced by 0.5.15, reproduced on the released build first.

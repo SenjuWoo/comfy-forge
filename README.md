@@ -66,6 +66,12 @@ python TOOLS/anima_dataset.py --images "S:\my\shots" --out "S:\my\shots-dataset"
 
 Existing grabber captions are converted; only images without one are tagged. `--mode convert` never loads a tagger, `--mode retag` merges into your tags instead of replacing them. `_review.tsv` shows every caption before you train. Full options and limits: [docs/DATASET.md](docs/DATASET.md).
 
+## Working with AssetForge
+
+comfy-kit renders; [AssetForge](https://github.com/SenjuWoo/AssetForge) turns the result into a validated, engine-exportable game asset. AssetForge delegates its `comfy-generate` recipe to this repo, so the two are designed to sit side by side — AssetForge is a separate install and nothing about it lives in here.
+
+Install comfy-kit first (`install`, then `launch-windows.bat` for SwarmUI), then point AssetForge at this folder with `COMFY_KIT_ROOT` and its renders land inside your asset project instead of a loose folder of PNGs. Setup, the expected session, and what is and isn't verified: **[docs/ASSETFORGE.md](docs/ASSETFORGE.md)**.
+
 ## What's in the box
 
 | | |
@@ -191,7 +197,7 @@ TOOLS/merge_anima.py             the merge engine
 TOOLS/Ensure-AnimaSwarmUI.ps1    model download and verification
 presets/                         42 presets, hash-pinned manifest
 workflows/                       ComfyUI 4-way merge graph
-docs/                            MERGE.md, banner, sample render
+docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, banner, sample render
 TESTS/                           merge math, installer gate, PS parse, MCP handshake
 ```
 
