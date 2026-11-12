@@ -1,4 +1,4 @@
-# Updating comfy-kit's external dependencies
+# Updating comfy-forge's external dependencies
 
 Every external node pack is pinned by commit in `config/dependencies.lock.json`.
 `install` checks out those exact commits; `status` reports drift. Nothing is

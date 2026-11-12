@@ -3,7 +3,7 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.5.17). Since 0.5.1 the tag, VERSION, changelog
+**Version** — see `VERSION` (0.6.0). Since 0.5.1 the tag, VERSION, changelog
 heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and the
 `release-verify` workflow that runs on every tag.
 
@@ -47,6 +47,7 @@ heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and t
 machine. The code paths exist and are exercised on this machine, but no clean
 environment has been used, so this stays UNVERIFIED rather than claimed.
 PowerShell 7 beyond CI is also unverified; local checks run on 5.1.
+- v0.6.0: repo renamed comfy-kit -> comfy-forge (state folder keeps `%LOCALAPPDATA%\comfy-kit`); `presets/3d/` ships Idol/Pixal3D templates; `TOOLS/Install-3DModels.ps1` downloads weights opt-in; docs/3D-MODELS.md is the decision guide (props -> Pixal3D single; characters -> turnaround sheet -> Pixal3D multi-view; previews -> Idol). 3D renders UNVERIFIED (backend not running).
 - MCP is proven end to end: `test_mcp_handshake.py --workflow` enqueues through the MCP tool and waits for a rendered image.
 
 **Log** — dtype policy, transactional writer, dependency resolver, safe model

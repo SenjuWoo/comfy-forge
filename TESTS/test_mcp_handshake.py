@@ -97,7 +97,7 @@ def main(argv=None):
     try:
         try:
             init = send(1, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
-                                          "clientInfo": {"name": "comfy-kit", "version": "1.0"}})
+                                          "clientInfo": {"name": "comfy-forge", "version": "1.0"}})
         except RuntimeError as e:
             print(f"UNVERIFIED: {e}")
             print("MCP: UNVERIFIED (server unavailable)")

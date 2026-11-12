@@ -122,7 +122,7 @@ function Install-ModelFile {
             $known = if (Test-Path -LiteralPath $idFile) { (Get-Content -LiteralPath $idFile -Raw).Trim() } else { '' }
             if ($known -ne $identity) {
                 Write-Log ('leaving an unrecognised staging directory alone: ' + (Split-Path -Leaf $stage))
-                $stage = Join-Path $parentDir ('.comfy-kit-stage-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+                $stage = Join-Path $parentDir ('.comfy-forge-stage-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
                 $data = Join-Path $stage 'data'
                 $idFile = Join-Path $stage 'id'
             }
@@ -153,7 +153,7 @@ function Install-ModelFile {
                     $curlArgs = @('-sS', '-L', '--fail')
                     if ($resumed) { $curlArgs += @('-C', '-') }
                     $curlArgs += @('--output', $data, $Url)
-                    $errLog = Join-Path ([IO.Path]::GetTempPath()) ('comfy-kit-curl-' + [guid]::NewGuid().ToString('N') + '.log')
+                    $errLog = Join-Path ([IO.Path]::GetTempPath()) ('comfy-forge-curl-' + [guid]::NewGuid().ToString('N') + '.log')
                     try {
                         # PS 5.1 turns redirected native stderr into a terminating
                         # error under EAP=Stop, which would bypass the exit-code
@@ -181,7 +181,7 @@ function Install-ModelFile {
                 else {
                     # No curl means no range support: this is a full restart, not a
                     # resume, and the code says so rather than pretending.
-                    $headers = @{ 'User-Agent' = 'comfy-kit' }
+                    $headers = @{ 'User-Agent' = 'comfy-forge' }
                     Invoke-WebRequest -Uri $Url -OutFile $data -Headers $headers -TimeoutSec 3600 -UseBasicParsing
                 }
 

@@ -67,7 +67,7 @@ def check_error(entry, what):
     raise SystemExit("FAIL %s reported an error without detail" % what)
 
 
-RUN_STEM = "comfy-kit-4way-%s"
+RUN_STEM = "comfy-forge-4way-%s"
 
 
 def _name_ok(path, stem):
@@ -315,7 +315,7 @@ def main():
         return 1
     # Unique per run: two runs must never land on the same output file.
     for sid in saver_ids:
-        prompt[sid]["inputs"]["filename_prefix"] = "comfy-kit-4way-%s" % run_id
+        prompt[sid]["inputs"]["filename_prefix"] = "comfy-forge-4way-%s" % run_id
 
     merger = next(v for v in prompt.values() if v["class_type"] == "HaDeSAnimaMultiModelMerger")
     sampler = next((v for v in prompt.values() if v["class_type"] == "HaDeSAnimaKSampler"), None)
@@ -334,7 +334,7 @@ def main():
         return 0
 
     print("note submitting the shipped merge graph (loads five models)")
-    pid = post(base + "/prompt", {"prompt": prompt, "client_id": "comfy-kit"})["prompt_id"]
+    pid = post(base + "/prompt", {"prompt": prompt, "client_id": "comfy-forge"})["prompt_id"]
     print("ok   submitted %s" % pid)
     entry = wait_for(base, pid, args.timeout, "the merge")
     check_error(entry, "merge")
@@ -373,7 +373,7 @@ def main():
         if not models_dir:
             models_dir = os.path.join(os.path.dirname(os.path.dirname(saved_path)),
                                       "models", "diffusion_models")
-        visible_name = "comfy-kit-test-%s.safetensors" % run_id
+        visible_name = "comfy-forge-test-%s.safetensors" % run_id
         try:
             visible, how = expose(saved_path, models_dir, visible_name)
         except FileExistsError as e:
@@ -419,9 +419,9 @@ def main():
                 "negative": ["4", 0], "latent_image": ["5", 0]}},
             "7": {"class_type": "VAEDecode", "inputs": {"samples": ["6", 0], "vae": ["2", 2]}},
             "8": {"class_type": "SaveImage", "inputs": {
-                "filename_prefix": "comfy-kit-4way-%s-render" % run_id, "images": ["7", 0]}},
+                "filename_prefix": "comfy-forge-4way-%s-render" % run_id, "images": ["7", 0]}},
         }
-        pid2 = post(base + "/prompt", {"prompt": render, "client_id": "comfy-kit"})["prompt_id"]
+        pid2 = post(base + "/prompt", {"prompt": render, "client_id": "comfy-forge"})["prompt_id"]
         entry2 = wait_for(base, pid2, args.timeout, "the reload render")
         check_error(entry2, "render")
         img = next((x for o in entry2.get("outputs", {}).values()

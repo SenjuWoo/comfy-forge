@@ -130,7 +130,7 @@ def main():
                          "latent_image": ["4", 0]}},
         "6": {"class_type": "VAEDecode", "inputs": {"samples": ["5", 0], "vae": ["1", 2]}},
         "7": {"class_type": "SaveImage",
-              "inputs": {"filename_prefix": "comfy-kit-integration", "images": ["6", 0]}},
+              "inputs": {"filename_prefix": "comfy-forge-integration", "images": ["6", 0]}},
     }
     try:
         res = post(base + "/prompt", {"prompt": prompt, "client_id": uuid.uuid4().hex})

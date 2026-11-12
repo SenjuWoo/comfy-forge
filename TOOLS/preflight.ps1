@@ -38,7 +38,7 @@ function Run-Check([string]$Name, [string]$Exe, [string[]]$Arguments, [int]$Unve
 $py = if ($env:COMFY_PYTHON) { $env:COMFY_PYTHON } else { 'python' }
 $jsonOut = if ($env:COMFY_PREFLIGHT_JSON) { $env:COMFY_PREFLIGHT_JSON } else { $null }
 
-Write-Host '== comfy-kit preflight =='
+Write-Host '== comfy-forge preflight =='
 Run-Check 'powershell syntax' 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-PsSyntax.ps1')
 Run-Check 'installer gate'    'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-AnimaInstall.ps1')
 Run-Check 'cli surface'       'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-CliSurface.ps1')
@@ -74,7 +74,7 @@ Write-Host ("version  {0}" -f $version)
 Write-Host ("commit   {0}{1}" -f $head, $(if ($dirty) { ' (working tree dirty)' } else { '' }))
 Write-Host ("checks   {0} passed, {1} failed, {2} unverified" -f @($results | Where-Object { $_.State -eq 'PASS' }).Count, $failed.Count, $unverified.Count)
 $machine = [pscustomobject]@{
-    tool       = 'comfy-kit preflight'
+    tool       = 'comfy-forge preflight'
     version    = $version
     commit     = $head
     dirty      = [bool]$dirty

@@ -1,13 +1,13 @@
-# Using comfy-kit with AssetForge
+# Using comfy-forge with AssetForge
 
 [AssetForge](https://github.com/SenjuWoo/AssetForge) is a standalone, agent-friendly
 toolkit for producing, validating and packaging game assets — images, textures, meshes
 and engine-ready exports. It is a separate repository and a separate install; this page
 only explains how the two are meant to work together.
 
-comfy-kit renders. AssetForge orchestrates. Neither forks, wraps or replaces the other.
+comfy-forge renders. AssetForge orchestrates. Neither forks, wraps or replaces the other.
 
-## What AssetForge does with comfy-kit
+## What AssetForge does with comfy-forge
 
 Two recipes delegate to this repository:
 
@@ -17,18 +17,18 @@ Two recipes delegate to this repository:
 | `comfy-import` | reads an existing render into an asset | nothing beyond the file |
 
 AssetForge only delegates a render and keeps the result inside the asset it is building.
-It never installs models, downloads weights or edits comfy-kit's config.
+It never installs models, downloads weights or edits comfy-forge's config.
 
 ## Why this pairing works
 
-If you already use comfy-kit for Anima renders, AssetForge adds the asset side: a project
+If you already use comfy-forge for Anima renders, AssetForge adds the asset side: a project
 layout, a job history, image prep recipes (tileable padding, packing, validation), and
 exports to Roblox / Godot / generic. You get generated textures *inside* a validated asset
 instead of a folder of loose PNGs you then copy by hand.
 
-## Make comfy-kit ready first
+## Make comfy-forge ready first
 
-AssetForge cannot render until comfy-kit can. Do this once, in order:
+AssetForge cannot render until comfy-forge can. Do this once, in order:
 
 ```powershell
 # 1. see what is installed and running
@@ -37,7 +37,7 @@ powershell -File TOOLS\image-stack.ps1 status
 # 2. install anything missing (models, node pack, python modules)
 powershell -File TOOLS\image-stack.ps1 install
 
-# 3. start SwarmUI — AssetForge calls the same backend comfy-kit does
+# 3. start SwarmUI — AssetForge calls the same backend comfy-forge does
 & "<your SwarmUI folder>\launch-windows.bat"
 
 # 4. confirm it answers before handing work to AssetForge
@@ -49,19 +49,24 @@ fails fast with that message rather than hanging an AssetForge job.
 
 ## Point AssetForge at this copy
 
-AssetForge looks for comfy-kit, in order, at:
+AssetForge looks for comfy-forge in these places (order as configured on the AssetForge
+side; COMFY_KIT_ROOT and `integrations.comfy_kit` are the reliable ones):
 
-1. `COMFY_KIT_ROOT` (environment variable),
+1. `COMFY_KIT_ROOT` (environment variable) — still named COMFY_KIT_ROOT in v0.6.0 for AssetForge compatibility,
 2. `integrations.comfy_kit` in its project's `project.json`,
-3. `~/comfy-kit`,
+3. a default `~/comfy-kit` checkout on some AssetForge builds — the repo was renamed, so prefer 1 or 2,
 4. declared roots in its config.
+
+The folder and repo were renamed `comfy-kit` → `comfy-forge` in v0.6.0; AssetForge itself is
+a separate project, so its own default paths are unchanged and may still point at the old
+name. `COMFY_KIT_ROOT` remains the variable AssetForge reads today.
 
 Required markers: `TOOLS/image-stack.ps1` and `presets/presets.json`.
 
 The durable option is the environment variable:
 
 ```powershell
-setx COMFY_KIT_ROOT "<path to this comfy-kit folder>"
+setx COMFY_KIT_ROOT "<path to this comfy-forge folder>"
 ```
 
 Per-project, in AssetForge's `project.json`:
@@ -69,7 +74,7 @@ Per-project, in AssetForge's `project.json`:
 ```json
 {
   "integrations": {
-    "comfy_kit": "<path to this comfy-kit folder>"
+    "comfy_kit": "<path to this comfy-forge folder>"
   }
 }
 ```
@@ -91,7 +96,7 @@ Seeds are reproducible: `--set seed=12345` gives you the same image back.
 ## Things AssetForge will not do for you
 
 - Install or download model weights (nothing here happens without you running `install`).
-- Start SwarmUI. If it is not running, the render step fails with comfy-kit's own message.
+- Start SwarmUI. If it is not running, the render step fails with comfy-forge's own message.
 - Pick a preset for you. The default is `Anima - Author Daily (Euler + SGM)`; give it a different one with `--set preset="<name>"` (`TOOLS\image-stack.ps1 presets` lists them).
 - Verify quality. It validates the export, not the art — look at the image.
 
@@ -110,11 +115,11 @@ assetforge.cmd providers
 assetforge.cmd run comfy-generate --set "prompt=solid mid-grey, flat, tileable" --set count=1 --set width=512 --set height=512
 ```
 
-An empty or failing render means comfy-kit is the thing to fix — see
+An empty or failing render means comfy-forge is the thing to fix — see
 [docs/MERGE.md](MERGE.md) for model and preset specifics.
 
 ## Exit codes AssetForge sees
 
-comfy-kit's CLI exits 0 on success and 1 on any refusal (no preset, no model, SwarmUI not
+comfy-forge's CLI exits 0 on success and 1 on any refusal (no preset, no model, SwarmUI not
 running, nothing to merge). AssetForge surfaces those as recipe failures with the CLI's
 output attached, so `--json` is the way to drive it from a script.

@@ -4,7 +4,7 @@
   from a preset, merge checkpoints, and wire an agent to ComfyUI.
 
 .DESCRIPTION
-  comfy-kit keeps the Anima path on rails: `install` fetches everything that is
+  comfy-forge keeps the Anima path on rails: `install` fetches everything that is
   missing (model files, the Anima node pack, the python merge modules), and the
   other verbs do one job each.
 
@@ -707,7 +707,7 @@ function Invoke-Merge {
 
   $python = Find-Python
   $mergeScript = Join-Path $PSScriptRoot 'merge_anima.py'
-  $reportPath = Join-Path ([IO.Path]::GetTempPath()) ("comfy-kit-merge-" + [guid]::NewGuid().ToString('N').Substring(0,8) + '.json')
+  $reportPath = Join-Path ([IO.Path]::GetTempPath()) ("comfy-forge-merge-" + [guid]::NewGuid().ToString('N').Substring(0,8) + '.json')
   # One builder for every execution: the fallback retry used to rebuild this list
   # by hand and forget --report, so a full checkpoint was routed as UNET-only.
   $buildArgs = {

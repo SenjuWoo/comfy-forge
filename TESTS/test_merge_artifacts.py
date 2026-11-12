@@ -161,7 +161,7 @@ check(True, "cleanup ignores paths that are already gone")
 
 # --- saved_path ownership (a backend we do not trust) ----------------------
 run = "abcd1234"
-stem = "comfy-kit-4way-" + run
+stem = "comfy-forge-4way-" + run
 owned = os.path.join(outdir, stem + ".safetensors")
 open(owned, "wb").write(b"merge")
 user = os.path.join(outdir, "my-precious-model.safetensors")

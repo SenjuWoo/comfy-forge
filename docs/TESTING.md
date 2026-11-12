@@ -1,4 +1,4 @@
-# Testing comfy-kit
+# Testing comfy-forge
 
 Two layers. The fast layer runs anywhere in about a minute; the live layer needs
 a real ComfyUI with models and a GPU, and it is the only layer that proves the
