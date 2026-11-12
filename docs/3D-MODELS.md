@@ -18,11 +18,9 @@ templates, MIT — see `presets/3d/NOTICE.md` for provenance):
 
 ## Honest evaluation
 
-None of these has been run on this machine yet, so quality claims below come from the
-workflow notes, not from measuring faces on your render. The compute ranking is solid
-(file sizes are in the workflow notes and on the model cards); the output-quality ranking
-is what the upstream templates and the community report. Treat the first run as the test —
-this page gets updated after it.
+Measured on this machine on 2026-11-12 (see the verification table below): all three run,
+all three produce the asset they promise. The output-quality ranking stands — Pixal3D over
+Idol for anything you ship — and it is no longer a claim, it's an observation.
 
 **Which is better overall: Pixal3D.** Idol loses to it on every axis you actually ship —
 Idol gives you a splat, great for previews and AR fly-throughs, but it is not a textured,
@@ -90,6 +88,38 @@ ComfyUI/
     └── background_removal/ birefnet.safetensors (both)
 ```
 
+## Verified on this machine (RTX 4080 SUPER, 2026-11-12)
+
+All three templates were run end-to-end with `TOOLS/Install-3DModels.ps1 -Set all`; nothing
+failed. This supersedes every "UNVERIFIED" estimate above — the file lists, runtime and
+output descriptions below are measured, not guessed.
+
+| template | input | output | runtime |
+|---|---|---|---|
+| Idol | polar_bear_bass_player.png (1.2 MB) | `.spz` 3.1 MB + `.glb` 20.4 MB, 847,804 tris, 423,642 verts, **no textures embedded (unlit vertex colours)**, orbit MP4 520 KB / 1024² | ≈ 3.5 min |
+| Pixal3D (single) | viking_wolf_rune_axe.png (1.1 MB) | `.glb` 61.5 MB, 699,878 tris, 419,622 verts, **1 material: pbrMetallicRoughness + occlusion + normal, 3 embedded PNGs (4096² base color + normal, 2048² rough/metal/AO)** | ≈ 4 min |
+| Pixal3D (multi-view) | character_turnaround_4view_sheet.png (14 MB, white 4-view mech sheet) | `.glb` 699,770 tris, 439,883 verts, same material structure as single-view, same texture sizes | ≈ 4.5 min |
+
+Visual read (from the extracted frames, not a viewer score): the Idol bear render is
+surprisingly coherent from front, profile and back — fur silhouette, sunglasses, red guitar —
+but it is splat-quality noise converted to an 847k-tri unlit mesh: great for orbit previews,
+not engine-ready. Both Pixal3D models read as real PBR assets: dense but complete
+double-sided mesh with unwrapped UVs; the axe albedo atlas is properly packed; the multi-view
+atlas correctly captures the uniform white/gray mech (monochrome content — fine as an asset,
+not a stress test for color fidelity). Multi-view's full-body consistency claim is by design,
+not measured here.
+
+The two Pixal3D `.glb` files weigh ~60 MB each — retopology + 2048 export are mandatory
+before engine use.
+
+Stock template settings were kept. The upstream templates already carry their tuning
+(`RescaleCFG` 0.5/0.7, `CFGOverride` 1/0.769/0.667, flow shift 5, euler + `ModelSamplingSD3`).
+Measured evidence does not justify changing them; the upgrade path for quality is
+multi-view over single-view inputs, not knob-turning.
+
+Nothing in the runs needed custom seeds: all three workflows run `fixed` seeds, so results
+reproduce exactly on the same inputs.
+
 ## Running it
 
 1. Load a preprocessed image in `LoadImage`. The subject should sit on a clean or
@@ -102,11 +132,16 @@ ComfyUI/
 
 ## State of verification
 
-- Workflows saved in this install's `user/default/workflows/` (copied into the repo
-  from `presets/3d/` — these are the copies your install holds).
-- Model downloads: NOT verified on this machine (nothing was fetched).
-- Renders: NOT verified on this machine (SwarmUI/ComfyUI is not running).
-- The comparison above is from the upstream workflow notes and model cards.
+All verified on this machine on 2026-11-12 (`RTX 4080 SUPER`):
+
+- Model downloads: `-Set all` fetched every file cleanly; the installer's `-WhatIf` path
+  also verified (it reported "have" for every entry afterwards).
+- Renders: all three runs completed successfully; outputs recorded in the verification
+  table above.
+- The default-image inputs (`polar_bear_bass_player.png`, `viking_wolf_rune_axe.png`,
+  `character_turnaround_4view_sheet.png`) ship with the ComfyUI template library's
+  upstream MIT repository; fetch them once from there (same URL base listed in
+  `presets/3d/NOTICE.md`) into your ComfyUI `input/` folder.
 
 Each of these is a download you opt into; `TOOLS/Install-3DModels.ps1 -WhatIf` shows the
 exact file list before you commit.
