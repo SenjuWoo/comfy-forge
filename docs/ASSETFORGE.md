@@ -104,7 +104,7 @@ Seeds are reproducible: `--set seed=12345` gives you the same image back.
 
 | Check | Result |
 |---|---|
-| AssetForge delegates a render through `image-stack.ps1 generate` | UNVERIFIED on this machine — SwarmUI is not running |
+| AssetForge delegates a render through `image-stack.ps1 generate` | UNVERIFIED — AssetForge itself has never been run on this machine; SwarmUI/ComfyUI is running and this repo's render path works independently |
 | Markers this repo exposes (`TOOLS/image-stack.ps1`, `presets/presets.json`) | present |
 | `image-stack.ps1 status` / `presets` / `generate -Out` | PASS in this repo's test suite |
 
@@ -123,3 +123,12 @@ An empty or failing render means comfy-forge is the thing to fix — see
 comfy-forge's CLI exits 0 on success and 1 on any refusal (no preset, no model, SwarmUI not
 running, nothing to merge). AssetForge surfaces those as recipe failures with the CLI's
 output attached, so `--json` is the way to drive it from a script.
+
+## Which tool for which job
+
+The decision guide for the two tools — deterministic/QA-gated AssetForge pipelines vs
+this repo's generative AI lanes (renders, LoRA captions, image→3D), and when to use
+which for 2D sprites, procedural props, texture pipelines, engine exports — lives in
+**[PRODUCTION-WORKFLOWS.md](PRODUCTION-WORKFLOWS.md)**. Short version: **AssetForge for
+repetitive/QA-gated exports and procedural props; comfy-forge for generative art, AI
+renders and image→3D; the two in sequence when a 3D asset starts from a concept image.**

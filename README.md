@@ -86,7 +86,7 @@ powershell -File TOOLS\Install-3DModels.ps1 -WhatIf   # see the exact list first
 powershell -File TOOLS\Install-3DModels.ps1 -Set pixal3d
 ```
 
-**Status:** neither model has been run on this machine — SwarmUI/ComfyUI is not running here. The templates and file lists are verified against the upstream notes; renders are unverified.
+**Status:** verified on this machine (2026-11-12, RTX 4080 SUPER) — all three templates were run end-to-end (Idol ≈3.5 min; Pixal3D single ≈4 min; multi-view ≈4.5 min) and produced expected outputs. Wall details: panel sizes, tri counts, file sizes in [docs/3D-MODELS.md](docs/3D-MODELS.md#verified-on-this-machine-rtx-4080-super-2026-11-12).
 
 ## Working with AssetForge
 
@@ -222,7 +222,7 @@ TOOLS/Install-3DModels.ps1       downloads the Idol/Pixal3D 3D weights (opt-in)
 presets/                         42 presets, hash-pinned manifest
 presets/3d/                      3D templates (Idol, Pixal3D) — MIT, from Comfy-Org workflow templates
 workflows/                       ComfyUI 4-way merge graph
-docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, 3D-MODELS.md, banner, sample render
+docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, 3D-MODELS.md, PRODUCTION-WORKFLOWS.md, banner, sample render
 TESTS/                           merge math, installer gate, PS parse, MCP handshake
 ```
 

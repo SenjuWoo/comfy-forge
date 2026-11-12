@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.6.1 - 3D templates verified end-to-end; AssetForge decision guide
+
+The three 3D templates shipped in v0.6.0 were run end-to-end on this machine
+(2026-11-12, RTX 4080 SUPER, SwarmUI driving ComfyUI 0.44.0): all pass.
+
+- `presets/3d/3d_idol_image_to_gaussian_splat.json` — fur bear fixture:
+  `.spz` 3.1 MB + `.glb` 20.4 MB (847,804 tris), no embedded textures, orbit MP4 written. Runtime ~3.5 min.
+- `presets/3d/3d_pixal3d_trellis2_image_to_model.json` — viking_wolf_rune_axe.png:
+  `.glb` 61.5 MB, 699,878 tris, double-sided, occlusion + normal material, 3 embedded PBR PNGs
+  (4096x4096 base color + normal, 2048x2048 ORM/AO). Runtime ~4 min.
+- `presets/3d/3d_pixal3d_multi_views.json` — 4-view mech turnaround sheet:
+  `.glb` 699,770 tris, same PBR material structure. Runtime ~4.5 min.
+- Templates kept at stock (upstream RescaleCFG 0.5/0.7, CFGOverride 1/0.769/0.667, flow shift 5, euler + SD3 sampler).
+  All three run `fixed` seeds.
+- `docs/3D-MODELS.md` rewritten: verified runtime/outputs/face counts; measured, not estimates.
+- NEW `docs/PRODUCTION-WORKFLOWS.md`: which tool for which job. AssetForge is the deterministic,
+  QA-gated production lane (2D sprites/atlases, procedural props with baked exports, glb optimize/retopo,
+  roblox/godot budgets); comfy-forge is the generative AI lane (Anima renders, dataset captions, image->3D).
+  Pattern: concept image -> comfy-forge 3D template (sub-asset) -> AssetForge retopo/LOD/export.
+- `docs/ASSETFORGE.md` kept honest on AssetForge: its delegation through `comfy-generate` is UNVERIFIED
+  (AssetForge has never run on this machine) even though SwarmUI is running now.
+- README 3D section updated to verified; layout list updated.
+
+No behaviour changes to code.
+
 ## v0.6.0 - comfy-kit is now comfy-forge; 3D image-to-model support
 
 Two things in one release:
