@@ -111,7 +111,9 @@ function Get-UabsSearchRoots {
     (Join-Path $env:USERPROFILE 'Downloads\ComfyUI'),
     (Join-Path $env:LOCALAPPDATA 'Programs\SwarmUI'),
     'C:\SwarmUI', 'C:\ComfyUI', 'C:\AI\SwarmUI', 'C:\AI\ComfyUI',
-    'S:\Apps\SwarmUI', 'S:\Apps\ComfyUI', 'S:\Misc\SwarmUI', 'S:\Misc\ComfyUI'
+    'D:\SwarmUI', 'D:\ComfyUI', 'D:\AI\SwarmUI', 'D:\AI\ComfyUI',
+    # An install anywhere else is named once, not guessed: -SearchRoot, or these.
+    $env:SWARMUI_ROOT, $env:COMFYUI_ROOT
   ) }
   $roots = @()
   foreach ($p in $candidates) {

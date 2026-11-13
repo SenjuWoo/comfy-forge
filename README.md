@@ -54,17 +54,22 @@ verifies each file by SHA-256, so re-running is cheap and safe.
 | `merge` | Write a merged `.safetensors` and refresh SwarmUI's model list |
 | `mcp` | Print a ready client config for the ComfyUI MCP server |
 
-## Captioning a LoRA dataset
+## Preparing a training dataset
 
-Point it at a folder of images — with or without existing imgbrd-grabber `.txt` captions — plus a concept, and it writes a new dataset folder with one Anima-ready caption per image. Sources are never modified. Training happens on Civitai; this is the front half.
+Point it at a folder of images that already have matching `.txt` files of booru tags (an imgbrd-grabber export, for example) and it writes a new dataset folder plus a verified upload archive. Sources are never modified. Training happens elsewhere; this is the front half.
 
 ```
-powershell -File TOOLS/Install-Tagger.ps1          # once, ~1.2 GB, Apache-2.0 weights
+python TOOLS/anima_dataset.py inspect --images "S:\my\shots"
 python TOOLS/anima_dataset.py --images "S:\my\shots" --out "S:\my\shots-dataset" ^
-  --trigger mychar --concept "an original anime illustration" --zip mychar.zip
+  --mode convert --trigger mychar --zip mychar.zip
+python TOOLS/anima_dataset.py validate mychar.zip
 ```
 
-Existing grabber captions are converted; only images without one are tagged. `--mode convert` never loads a tagger, `--mode retag` merges into your tags instead of replacing them. `_review.tsv` shows every caption before you train. Full options and limits: [docs/DATASET.md](docs/DATASET.md).
+1. `inspect` reports pairs, missing captions, broken files, exact and near duplicates, sizes and the most common tags, then prints the build command that fits. It writes nothing.
+2. The build converts each caption to Anima's conventions (spaces, lowercase, `@artist`, safety tag from `rating:`, section order), drops post-bookkeeping tags and says which, leaves out duplicates and unreadable files with a named reason, and writes a flat archive that is reopened and checked.
+3. `validate` checks the folder or the archive again before you upload it.
+
+Existing tags are kept: nothing is replaced by a generated description. Only images with no caption are tagged, and only in `--mode auto` (`powershell -File TOOLS/Install-Tagger.ps1` once, ~1.2 GB, Apache-2.0 weights). `--mode convert` never loads a tagger. `_review.tsv` shows every caption and every dropped tag. Add `--json` for a machine-readable result. From PowerShell use `TOOLS\dataset.ps1`, which passes arguments through untouched. Full options and limits: [docs/DATASET.md](docs/DATASET.md).
 
 ## 3D: image → 3D (Idol, Pixal3D)
 

@@ -10,6 +10,11 @@ Three modes:
   convert  existing captions only - no tagger, no ONNX Runtime, no weights needed
   retag    tagger first, existing tags as the baseline; nothing is dropped silently
 
+Commands:
+  build     (default) write the dataset; every flag below belongs to it
+  inspect   read-only report on a source folder: pairs, sizes, duplicates, tags
+  validate  check a finished dataset folder or archive before it is uploaded
+
 Nothing here trains a LoRA or uploads anything.
 """
 from __future__ import annotations
@@ -34,6 +39,48 @@ MODELS = {
     "swinv2": ("SmilingWolf/wd-swinv2-tagger-v3", 448),
 }
 SCORE_TAG = re.compile(r"^score_\d+$")
+ORDERS = ("anima", "source")
+ZIP_LAYOUTS = ("flat", "tree", "kohya")
+
+# `artist:name` style prefixes that booru exporters can write in front of a tag.
+NAMESPACES = {
+    "artist": "artist", "creator": "artist",
+    "character": "character", "char": "character",
+    "copyright": "copyright", "series": "copyright", "parody": "copyright",
+    "meta": "meta", "metadata": "meta",
+    "general": "", "tag": "", "species": "",
+    "rating": "rating",
+}
+# Booru ratings to the safety tags Anima was trained with.
+RATINGS = {"g": "safe", "general": "safe", "safe": "safe",
+           "s": "sensitive", "sensitive": "sensitive",
+           "q": "nsfw", "questionable": "nsfw",
+           "e": "explicit", "explicit": "explicit"}
+SAFETY_TAGS = {"safe", "sensitive", "nsfw", "explicit"}
+# Tags that describe the post or the upload, not the picture. They carry no visual
+# signal, so a caption is better without them.
+BOOKKEEPING = {
+    "tagme", "commentary", "commentary request", "english commentary", "chinese commentary",
+    "korean commentary", "japanese commentary", "symbol-only commentary", "partial commentary",
+    "mixed-language commentary", "commentary typo", "translated", "translation request",
+    "partially translated", "check translation", "hard-translated", "bad id", "bad pixiv id",
+    "bad twitter id", "bad link", "bad source", "md5 mismatch", "duplicate", "revision",
+    "resized", "upscaled", "image sample", "paid reward", "paid reward available",
+    "patreon reward", "fanbox reward", "fantia reward", "gumroad reward", "skeb commission",
+    "commission", "third-party edit", "third-party source", "second-party source",
+    "non-web source", "source request", "artist request", "character request",
+    "copyright request", "annotation request", "source larger", "source smaller",
+    "variant set", "making-of available", "video available", "has bad revision",
+    "has downscaled revision", "has cropped revision", "has glazed revision",
+}
+QUALITY_HEAD = {"masterpiece", "best quality", "good quality", "normal quality", "low quality",
+                "worst quality", "highres", "absurdres", "incredibly absurdres", "lowres"}
+YEAR_TAG = re.compile(r"^year \d{4}$")
+COUNT_TAG = re.compile(r"^(?:\d\+?(?:girl|boy|other)s?|solo|solo focus|multiple girls|"
+                       r"multiple boys|no humans)$")
+# What a manifest written before these settings existed was built with.
+LEGACY_SETTINGS = {"order": "source", "keep_bookkeeping": True, "drop_rating": False,
+                   "min_side": 0, "keep_duplicates": True}
 
 
 def tagger_dir() -> str:
@@ -125,9 +172,26 @@ def normalize_tags(raw_tags: list[str]) -> list[str]:
     return out
 
 
-def read_caption_file(path: str) -> tuple[list[str], list[str]]:
-    """Booru caption file to tags. Returns (tags, problems)."""
-    problems = []
+def split_namespace(raw: str) -> tuple[str, str]:
+    """`artist:foo` to ("artist", "foo"). A tag with no known prefix is returned whole,
+    so `:3`, `re:zero` and `nier:automata` stay ordinary tags."""
+    text = raw.strip().strip(",").strip()
+    head, sep, rest = text.partition(":")
+    key = head.strip().lower()
+    if sep and rest.strip() and key in NAMESPACES:
+        return NAMESPACES[key], rest.strip()
+    return "", text
+
+
+def read_caption_detail(path: str) -> tuple[list[str], list[str], dict[str, str]]:
+    """Booru caption file to tags, plus what each prefixed tag was declared to be.
+
+    Returns (tags, problems, kinds). `kinds` maps a tag to artist, character,
+    copyright, meta or safety when the source said so. Artists come out as `@name`,
+    the form Anima reads, and a rating becomes its safety tag.
+    """
+    tags, problems = [], []
+    kinds: dict[str, str] = {}
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -135,12 +199,93 @@ def read_caption_file(path: str) -> tuple[list[str], list[str]]:
         with open(path, encoding="utf-8", errors="replace") as f:
             text = f.read()
         problems.append("caption was not valid UTF-8; unreadable bytes replaced")
+    if text.startswith("\ufeff"):
+        text = text[1:]
     if not text.strip():
-        return [], ["caption file is empty"]
-    raw = [t for t in re.split(r"[,\n]", text) if t.strip()]
-    tags = normalize_tags(raw)
+        return [], ["caption file is empty"], {}
+    raw_tags = []
+    for raw in re.split(r"[,\n]", text):
+        if not raw.strip():
+            continue
+        kind, body = split_namespace(raw)
+        tag = normalize_tag(body)
+        if not tag:
+            continue
+        if kind == "rating":
+            tag = RATINGS.get(tag)
+            if not tag:
+                continue
+            kind = "safety"
+        elif kind == "artist" or tag.startswith("@"):
+            tag = "@" + tag.lstrip("@ ").strip()
+            kind = "artist"
+        if kind:
+            kinds.setdefault(tag, kind)
+        raw_tags.append(tag)
+    tags = normalize_tags(raw_tags)
     if not tags:
         problems.append("caption produced no usable tags")
+    return tags, problems, kinds
+
+
+def is_bookkeeping(tag: str) -> bool:
+    return tag in BOOKKEEPING or tag.endswith(" request") or tag.endswith(" commentary")
+
+
+def order_tags(tags: list[str], kinds: dict[str, str], categories: dict[str, int]) -> list[str]:
+    """Anima's caption order: quality and meta, safety, subject count, character,
+    series, artist, then everything else. The sort is stable, so tags keep their
+    relative order inside a section."""
+    def section(tag: str) -> int:
+        kind = kinds.get(tag, "")
+        category = categories.get(tag.replace(" ", "_"), CAT_GENERAL) if categories else CAT_GENERAL
+        if SCORE_TAG.match(tag) or tag in QUALITY_HEAD or YEAR_TAG.match(tag) or kind == "meta":
+            return 0
+        if kind == "safety":
+            return 1
+        if COUNT_TAG.match(tag):
+            return 2
+        if kind == "character" or category == CAT_CHARACTER:
+            return 3
+        if kind == "copyright" or category == CAT_COPYRIGHT:
+            return 4
+        if kind == "artist" or category == CAT_ARTIST or tag.startswith("@"):
+            return 5
+        return 6
+    return sorted(tags, key=section)
+
+
+def refine_tags(tags: list[str], kinds: dict[str, str], args) -> tuple[list[str], list[str]]:
+    """Drop what the settings say to drop before the caption policy runs.
+
+    Returns (kept, notes). Every removal is written down: nothing leaves a caption
+    without a line in the review file saying so.
+    """
+    notes = []
+    kept = list(tags)
+    if not args.keep_bookkeeping:
+        gone = [t for t in kept if is_bookkeeping(t)]
+        if gone:
+            kept = [t for t in kept if t not in gone]
+            notes.append("dropped %d post-bookkeeping tag(s): %s" % (len(gone), ", ".join(gone)))
+    if args.drop_rating:
+        kept = [t for t in kept if kinds.get(t) != "safety"]
+    if args.drop_artists:
+        gone = [t for t in kept if kinds.get(t) == "artist"]
+        if gone:
+            kept = [t for t in kept if t not in gone]
+            notes.append("dropped artist tag(s): %s" % ", ".join(gone))
+    if args.type == "style":
+        gone = [t for t in kept if kinds.get(t) in ("character", "copyright")]
+        if gone:
+            kept = [t for t in kept if t not in gone]
+            notes.append("style: dropped %s" % ", ".join(gone))
+    return kept, notes
+
+
+def read_caption_file(path: str) -> tuple[list[str], list[str]]:
+    """Booru caption file to tags. Returns (tags, problems)."""
+    tags, problems, _kinds = read_caption_detail(path)
     return tags, problems
 
 
@@ -293,6 +438,61 @@ def image_is_readable(path: str) -> tuple[bool, str]:
         return False, "%s: %s" % (type(exc).__name__, exc)
 
 
+def image_dimensions(path: str) -> tuple[int, int]:
+    """Pixel size from the header, with the EXIF rotation applied. (0, 0) if unknown."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            width, height = im.size
+            orientation = 1
+            try:
+                orientation = int(im.getexif().get(0x0112, 1) or 1)
+            except Exception:  # noqa: BLE001 - a broken EXIF block is not a broken image
+                orientation = 1
+            if orientation in (5, 6, 7, 8):
+                width, height = height, width
+            return int(width), int(height)
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
+def dhash(path: str) -> int | None:
+    """64-bit difference hash: the same picture re-encoded or resized lands within a
+    few bits. None when Pillow is missing or the file does not decode."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            small = im.convert("L").resize((9, 8), Image.BILINEAR)
+            pixels = small.tobytes()
+    except Exception:  # noqa: BLE001
+        return None
+    value = 0
+    for row in range(8):
+        for col in range(8):
+            value = (value << 1) | (pixels[row * 9 + col] > pixels[row * 9 + col + 1])
+    return value
+
+
+def flat_names(rels: list[str], prefix: str = "") -> dict[str, str]:
+    """Archive names with no folders. A name used twice gets its folder path folded in,
+    so `a/x.png` and `b/x.png` stay two files."""
+    out: dict[str, str] = {}
+    taken: set[str] = set()
+    for rel in rels:
+        stem, ext = os.path.splitext(os.path.basename(rel))
+        name = stem
+        if name.lower() in taken:
+            folder = re.sub(r"[\\/]+", "_", os.path.dirname(rel)).strip("_")
+            name = "%s_%s" % (folder, stem) if folder else stem
+        base, counter = name, 2
+        while name.lower() in taken:
+            name = "%s_%d" % (base, counter)
+            counter += 1
+        taken.add(name.lower())
+        out[rel] = prefix + name + ext
+    return out
+
+
 def load_previous(out: str) -> tuple[dict[str, dict], dict]:
     """Entries and settings from the last run in this output folder.
 
@@ -321,7 +521,10 @@ def config_signature(args) -> dict:
             "concept": args.concept.strip(), "append_concept": args.append_concept,
             "threshold": args.threshold, "character_threshold": args.character_threshold,
             "max_tags": args.max_tags, "exclude": sorted(args.exclude),
-            "drop_artists": args.drop_artists, "tagger": args.tagger}
+            "drop_artists": args.drop_artists, "tagger": args.tagger,
+            "order": args.order, "keep_bookkeeping": args.keep_bookkeeping,
+            "drop_rating": args.drop_rating, "min_side": args.min_side,
+            "keep_duplicates": args.keep_duplicates}
 
 
 def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
@@ -360,6 +563,9 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
                 "way to tell an edited caption from a stale one. Rerun with --force to rebuild "
                 "from the sources, or --out to a new folder." % args.out)
         signature = config_signature(args)
+        if prev_settings:
+            # A manifest from before a setting existed was built with the old behaviour.
+            prev_settings = {**LEGACY_SETTINGS, **prev_settings}
         if prev_settings and prev_settings != signature:
             changed = sorted(k for k in set(prev_settings) | set(signature)
                              if prev_settings.get(k) != signature.get(k))
@@ -369,12 +575,24 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
 
     taken: set[str] = set()
     plan = []
+    # Of several byte-identical images, export the one whose caption says the most.
+    digests = {path: sha256_of(path) for path in images}
+    keeper: dict[str, str] = {}
+    richness: dict[str, int] = {}
+    for path in images:
+        if not readable[path][0]:
+            continue
+        txt = os.path.splitext(path)[0] + ".txt"
+        tags = len(read_caption_detail(txt)[0]) if os.path.isfile(txt) else -1
+        if digests[path] not in keeper or tags > richness[digests[path]]:
+            keeper[digests[path]] = path
+            richness[digests[path]] = tags
     for path in images:
         rel = out_rel_for(path, args.images, taken)
         txt = os.path.splitext(path)[0] + ".txt"
         out_caption_rel = os.path.splitext(rel)[0] + ".txt"
         has_txt = os.path.isfile(txt)
-        digest = sha256_of(path)
+        digest = digests[path]
         caption_digest = sha256_of(txt) if has_txt else None
         if args.mode == "convert":
             base = "grabber" if has_txt else "missing-caption"
@@ -406,10 +624,18 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
                     kind = "conflict"
                 else:
                     kind = base
+        size = image_dimensions(path) if readable[path][0] else (0, 0)
+        skip = ""
+        if readable[path][0]:
+            if keeper.get(digest) != path and not args.keep_duplicates:
+                skip = "duplicate"
+            elif args.min_side and size != (0, 0) and min(size) < args.min_side:
+                skip = "too-small"
         plan.append({"path": path, "rel": rel, "txt": txt, "has_txt": has_txt,
-                     "out_caption": out_caption_rel, "kind": kind, "sha": digest,
-                     "caption_sha": caption_digest, "previous": previous,
-                     "readable": readable[path]})
+                     "out_caption": out_caption_rel, "kind": "skip" if skip else kind,
+                     "sha": digest, "caption_sha": caption_digest, "previous": previous,
+                     "readable": readable[path], "size": size, "skip": skip,
+                     "duplicate_of": os.path.relpath(keeper.get(digest, path), args.images)})
 
     needs_inference = any(item["kind"] == "tag" for item in plan)
     tagger = None
@@ -436,12 +662,24 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
                  "out_rel": rel, "out_caption": item["out_caption"],
                  "caption": "", "tags": [], "origin": "", "notes": [],
                  "status": "ok", "source_sha256": item["sha"],
-                 "source_caption_sha256": item["caption_sha"], "unclassified": []}
+                 "source_caption_sha256": item["caption_sha"], "unclassified": [],
+                 "width": item["size"][0], "height": item["size"][1]}
 
         if not item["readable"][0]:
             entry["status"] = "unreadable"
             entry["notes"].append(item["readable"][1])
             problems.append("%s: %s" % (entry["image"], item["readable"][1]))
+            entries.append(entry)
+            continue
+
+        if item["skip"] == "duplicate":
+            entry["status"] = "duplicate"
+            entry["notes"].append("same bytes as %s" % item["duplicate_of"])
+            entries.append(entry)
+            continue
+        if item["skip"] == "too-small":
+            entry["status"] = "too-small"
+            entry["notes"].append("%dx%d is under --min-side %d" % (item["size"] + (args.min_side,)))
             entries.append(entry)
             continue
 
@@ -485,8 +723,9 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
                                       % previous.get("status"))
 
         existing_tags: list[str] = []
+        kinds: dict[str, str] = {}
         if item["has_txt"]:
-            existing_tags, cap_problems = read_caption_file(item["txt"])
+            existing_tags, cap_problems, kinds = read_caption_detail(item["txt"])
             entry["notes"].extend(cap_problems)
             problems.extend("%s: %s" % (os.path.basename(item["txt"]), p) for p in cap_problems)
 
@@ -516,8 +755,12 @@ def build_entries(args, tagger_factory=None) -> tuple[list[dict], list[str]]:
         else:
             tags, origin = existing_tags, "grabber"
 
+        tags, refine_notes = refine_tags(tags, kinds, args)
+        entry["notes"].extend(refine_notes)
         tags, unclassified = apply_policy(tags, categories, args.type, args.trigger,
                                           args.drop_artists, args.concept)
+        if args.order == "anima":
+            tags = order_tags(tags, kinds, categories)
         entry["unclassified"] = unclassified
         if unclassified:
             unclassified_seen.update(unclassified)
@@ -619,13 +862,50 @@ def dataset_warnings(entries: list[dict]) -> list[str]:
     for entry in entries:
         if entry["status"] != "ok":
             warnings.append("%s was not included (%s)" % (entry["image"], entry["status"]))
+    small = [e for e in ok if e.get("width") and min(e["width"], e["height"]) < 768]
+    if small:
+        warnings.append("%d image(s) are under 768 px on the short side; they train soft "
+                        "(pass --min-side 768 to leave them out)" % len(small))
     return warnings
+
+
+def size_summary(entries: list[dict]) -> dict:
+    sides = sorted(min(e["width"], e["height"]) for e in entries if e.get("width"))
+    if not sides:
+        return {}
+    shape = {"portrait": 0, "square": 0, "landscape": 0}
+    for e in entries:
+        if not e.get("width"):
+            continue
+        ratio = e["width"] / e["height"]
+        shape["square" if 0.9 <= ratio <= 1.1 else "portrait" if ratio < 0.9 else "landscape"] += 1
+    return {"short_side_min": sides[0], "short_side_median": sides[len(sides) // 2],
+            "short_side_max": sides[-1], "under_768": sum(1 for v in sides if v < 768),
+            "under_1024": sum(1 for v in sides if v < 1024), "shape": shape}
 
 
 def build_manifest(args, entries: list[dict], weights_sha: str | None = None) -> dict:
     ok = [e for e in entries if e["status"] == "ok"]
+    layout = getattr(args, "zip_layout", "flat")
+    prefix = ""
+    if layout == "kohya":
+        prefix = "%d_%s/" % (max(1, int(getattr(args, "repeats", 1))),
+                             re.sub(r"[^A-Za-z0-9 _-]+", "", normalize_tag(args.trigger) or "concept"))
+    names = {} if layout == "tree" else flat_names([e["out_rel"] for e in ok], prefix)
+    for entry in entries:
+        zip_image = names.get(entry["out_rel"], entry["out_rel"]).replace(os.sep, "/")
+        entry["zip_image"] = zip_image
+        entry["zip_caption"] = os.path.splitext(zip_image)[0] + ".txt"
+    excluded: dict[str, int] = {}
+    for entry in entries:
+        if entry["status"] != "ok":
+            excluded[entry["status"]] = excluded.get(entry["status"], 0) + 1
     return {
         "tool": "comfy-forge anima_dataset",
+        "manifest_version": 2,
+        "zip_layout": layout,
+        "excluded": excluded,
+        "sizes": size_summary(ok),
         "mode": args.mode,
         "type": args.type,
         "trigger": args.trigger,
@@ -646,7 +926,10 @@ def build_manifest(args, entries: list[dict], weights_sha: str | None = None) ->
                      "tags": e["tags"], "origin": e["origin"], "status": e["status"],
                      "notes": e["notes"], "source_sha256": e["source_sha256"],
                      "source_caption_sha256": e["source_caption_sha256"],
-                     "unclassified": e.get("unclassified", [])} for e in entries],
+                     "unclassified": e.get("unclassified", []),
+                     "width": e.get("width", 0), "height": e.get("height", 0),
+                     "zip_image": e["zip_image"], "zip_caption": e["zip_caption"]}
+                    for e in entries],
         "warnings": dataset_warnings(entries),
     }
 
@@ -657,8 +940,9 @@ def export_zip(out_dir: str, manifest: dict, zip_path: str) -> str:
         for entry in manifest["entries"]:
             if entry["status"] != "ok":
                 continue
-            zf.write(os.path.join(out_dir, entry["out_image"]), entry["out_image"])
-            zf.writestr(entry["out_caption"], entry["caption"] + "\n")
+            zf.write(os.path.join(out_dir, entry["out_image"]),
+                     entry.get("zip_image") or entry["out_image"])
+            zf.writestr(entry.get("zip_caption") or entry["out_caption"], entry["caption"] + "\n")
         if manifest.get("trigger"):
             zf.writestr("trigger.txt", manifest["trigger"] + "\n")
         zf.writestr("dataset-manifest.json", json.dumps(manifest, indent=2))
@@ -677,18 +961,20 @@ def verify_zip(zip_path: str, manifest: dict) -> list[str]:
         for entry in manifest["entries"]:
             if entry["status"] != "ok":
                 continue
-            if entry["out_image"] not in names:
-                problems.append("missing image in archive: " + entry["out_image"])
+            image_name = (entry.get("zip_image") or entry["out_image"]).replace("\\", "/")
+            caption_name = (entry.get("zip_caption") or entry["out_caption"]).replace("\\", "/")
+            if image_name not in names:
+                problems.append("missing image in archive: " + image_name)
             else:
-                digest = hashlib.sha256(zf.read(entry["out_image"])).hexdigest()
+                digest = hashlib.sha256(zf.read(image_name)).hexdigest()
                 if digest != entry["source_sha256"]:
-                    problems.append("image bytes differ from the source: " + entry["out_image"])
-            if entry["out_caption"] not in names:
-                problems.append("missing caption in archive: " + entry["out_caption"])
+                    problems.append("image bytes differ from the source: " + image_name)
+            if caption_name not in names:
+                problems.append("missing caption in archive: " + caption_name)
                 continue
-            body = zf.read(entry["out_caption"]).decode("utf-8").strip()
+            body = zf.read(caption_name).decode("utf-8").strip()
             if body != entry["caption"].strip():
-                problems.append("caption mismatch in archive: " + entry["out_caption"])
+                problems.append("caption mismatch in archive: " + caption_name)
     return problems
 
 
@@ -700,8 +986,293 @@ def sha256_of(path: str) -> str:
     return h.hexdigest()
 
 
+# ------------------------------------------------------------------ inspect
+
+def inspect_folder(folder: str, near: bool = True, near_limit: int = 4000) -> dict:
+    """Read-only report on a source folder. Decides nothing and writes nothing."""
+    images = list_images(folder)
+    by_hash: dict[str, list[str]] = {}
+    unreadable, missing_caption, sizes = [], [], []
+    tag_counts: dict[str, int] = {}
+    namespaces: dict[str, int] = {}
+    bookkeeping: dict[str, int] = {}
+    caption_problems, thin = [], []
+    hashes: list[tuple[str, int]] = []
+    captioned = 0
+    for path in images:
+        rel = os.path.relpath(path, folder)
+        ok, why = image_is_readable(path)
+        if not ok:
+            unreadable.append({"image": rel, "error": why})
+            continue
+        by_hash.setdefault(sha256_of(path), []).append(rel)
+        width, height = image_dimensions(path)
+        if width:
+            sizes.append({"image": rel, "width": width, "height": height})
+        if near and len(images) <= near_limit:
+            value = dhash(path)
+            if value is not None:
+                hashes.append((rel, value))
+        txt = os.path.splitext(path)[0] + ".txt"
+        if not os.path.isfile(txt):
+            missing_caption.append(rel)
+            continue
+        captioned += 1
+        tags, problems, kinds = read_caption_detail(txt)
+        for problem in problems:
+            caption_problems.append({"caption": os.path.relpath(txt, folder), "problem": problem})
+        if 0 < len(tags) < 4:
+            thin.append(rel)
+        for kind in kinds.values():
+            namespaces[kind] = namespaces.get(kind, 0) + 1
+        for tag in tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            if is_bookkeeping(tag):
+                bookkeeping[tag] = bookkeeping.get(tag, 0) + 1
+
+    image_stems = {os.path.splitext(path)[0].lower() for path in images}
+    orphans = []
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if not os.path.isfile(os.path.join(root, d, "dataset-manifest.json"))]
+        for name in sorted(files):
+            if name.lower().endswith(".txt"):
+                full = os.path.join(root, name)
+                if os.path.splitext(full)[0].lower() not in image_stems:
+                    orphans.append(os.path.relpath(full, folder))
+
+    duplicates = [group for group in by_hash.values() if len(group) > 1]
+    exact = {name for group in duplicates for name in group}
+    near_pairs = []
+    if hashes:
+        for i in range(len(hashes)):
+            for j in range(i + 1, len(hashes)):
+                distance = bin(hashes[i][1] ^ hashes[j][1]).count("1")
+                if distance <= 4 and not (hashes[i][0] in exact and hashes[j][0] in exact):
+                    near_pairs.append({"a": hashes[i][0], "b": hashes[j][0], "distance": distance})
+    entries = [{"width": s["width"], "height": s["height"]} for s in sizes]
+    usable = len(images) - len(unreadable)
+    common = sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    baked = [tag for tag, count in common if captioned >= 5 and count >= captioned * 0.8]
+
+    mode = "convert" if not missing_caption else "auto"
+    command = 'python TOOLS/anima_dataset.py --images "%s" --mode %s --trigger <token> --zip <name>.zip' % (folder, mode)
+    advice = []
+    if missing_caption:
+        advice.append("%d image(s) have no caption: --mode auto tags them (needs the tagger), "
+                      "--mode convert leaves them out and says so" % len(missing_caption))
+    if duplicates:
+        advice.append("%d exact duplicate group(s) are left out automatically" % len(duplicates))
+    if near_pairs:
+        advice.append("%d near-duplicate pair(s): keep the better of each by hand" % len(near_pairs))
+    small = sum(1 for s in sizes if min(s["width"], s["height"]) < 768)
+    if small:
+        advice.append("%d image(s) are under 768 px on the short side: add --min-side 768 to leave them out" % small)
+    if bookkeeping:
+        advice.append("post-bookkeeping tags (%s) are dropped automatically" % ", ".join(sorted(bookkeeping)[:6]))
+    if baked:
+        advice.append("in at least 80%% of captions: %s. If one of these is the concept itself, "
+                      "leave it; if not, --exclude it or it gets baked in" % ", ".join(baked[:8]))
+    return {
+        "schema": 1, "folder": os.path.abspath(folder),
+        "images": len(images), "usable": usable, "captioned": captioned,
+        "missing_caption": missing_caption, "orphan_captions": orphans,
+        "unreadable": unreadable, "caption_problems": caption_problems,
+        "exact_duplicates": duplicates,
+        "near_duplicates": near_pairs if hashes else None,
+        "sizes": size_summary(entries), "thin_captions": thin,
+        "tags": {"unique": len(tag_counts), "top": [{"tag": t, "count": c} for t, c in common[:30]],
+                 "in_most_captions": baked, "declared_kinds": namespaces,
+                 "bookkeeping": bookkeeping},
+        "advice": advice, "next": command,
+    }
+
+
+def print_inspect(report: dict) -> None:
+    print("%s" % report["folder"])
+    print("  images %d, usable %d, captioned %d, no caption %d, unreadable %d"
+          % (report["images"], report["usable"], report["captioned"],
+             len(report["missing_caption"]), len(report["unreadable"])))
+    if report["orphan_captions"]:
+        print("  captions with no image: %d" % len(report["orphan_captions"]))
+    sizes = report["sizes"]
+    if sizes:
+        print("  short side min/median/max %d/%d/%d, under 768: %d, under 1024: %d"
+              % (sizes["short_side_min"], sizes["short_side_median"], sizes["short_side_max"],
+                 sizes["under_768"], sizes["under_1024"]))
+        print("  shape " + ", ".join("%s %d" % kv for kv in sizes["shape"].items()))
+    print("  exact duplicate groups %d, near-duplicate pairs %s"
+          % (len(report["exact_duplicates"]),
+             "not checked" if report["near_duplicates"] is None else len(report["near_duplicates"])))
+    print("  unique tags %d; top: %s" % (report["tags"]["unique"],
+          ", ".join("%s (%d)" % (t["tag"], t["count"]) for t in report["tags"]["top"][:10])))
+    for line in report["advice"]:
+        print("  - " + line)
+    print("next: " + report["next"])
+
+
+# ----------------------------------------------------------------- validate
+
+def validate_dataset(path: str, trigger: str = "") -> dict:
+    """Check a finished dataset, as a folder or as the archive that gets uploaded.
+
+    Every image needs one non-empty caption with the same name, every caption needs
+    its image, and when a manifest is present every image must still be the file the
+    manifest recorded. Nothing is repaired.
+    """
+    import io
+
+    problems: list[str] = []
+    files: dict[str, object] = {}
+    is_zip = os.path.isfile(path)
+    if is_zip:
+        try:
+            archive = zipfile.ZipFile(path)
+        except (zipfile.BadZipFile, OSError) as exc:
+            return {"schema": 1, "path": os.path.abspath(path), "kind": "archive", "pairs": 0,
+                    "status": "FAIL", "problems": ["not a readable zip: %s" % exc]}
+        bad = archive.testzip()
+        if bad:
+            problems.append("corrupt member in archive: " + bad)
+        for name in archive.namelist():
+            if not name.endswith("/"):
+                files[name] = name
+        read = archive.read
+    elif os.path.isdir(path):
+        archive = None
+        for root, _dirs, names in os.walk(path):
+            for name in names:
+                full = os.path.join(root, name)
+                files[os.path.relpath(full, path).replace(os.sep, "/")] = full
+
+        def read(key):
+            with open(files[key], "rb") as handle:
+                return handle.read()
+    else:
+        return {"schema": 1, "path": os.path.abspath(path), "kind": "missing", "pairs": 0,
+                "status": "FAIL", "problems": ["no such folder or archive"]}
+
+    manifest = None
+    if "dataset-manifest.json" in files:
+        try:
+            manifest = json.loads(read("dataset-manifest.json").decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as exc:
+            problems.append("dataset-manifest.json does not parse: %s" % exc)
+    trigger = normalize_tag(trigger or (manifest or {}).get("trigger") or "")
+
+    images = sorted(n for n in files if os.path.splitext(n)[1].lower() in IMAGE_EXT)
+    captions = {n for n in files if n.lower().endswith(".txt")
+                and os.path.basename(n).lower() not in ("trigger.txt",)}
+    folders = {os.path.dirname(n) for n in images}
+    if is_zip and len(folders) > 1:
+        problems.append("images sit in %d different folders; an upload trainer expects the pairs "
+                        "together" % len(folders))
+    seen_stems: dict[str, str] = {}
+    hashes: dict[str, str] = {}
+    pairs = 0
+    for name in images:
+        stem = os.path.splitext(name)[0]
+        if stem.lower() in seen_stems:
+            problems.append("%s and %s share one caption name" % (seen_stems[stem.lower()], name))
+        seen_stems[stem.lower()] = name
+        data = read(name)
+        digest = hashlib.sha256(data).hexdigest()
+        if digest in hashes:
+            problems.append("%s is a byte-for-byte duplicate of %s" % (name, hashes[digest]))
+        hashes.setdefault(digest, name)
+        try:
+            from PIL import Image
+            with Image.open(io.BytesIO(data)) as im:
+                im.verify()
+        except ImportError:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            problems.append("%s does not decode: %s" % (name, exc))
+        caption_name = stem + ".txt"
+        if caption_name not in captions:
+            problems.append("%s has no caption" % name)
+            continue
+        text = read(caption_name).decode("utf-8", errors="replace").strip()
+        if not text:
+            problems.append("%s is empty" % caption_name)
+            continue
+        if trigger and normalize_tag(text.split(",")[0]) != trigger:
+            problems.append("%s does not start with the trigger '%s'" % (caption_name, trigger))
+        pairs += 1
+    stems = {os.path.splitext(n)[0] for n in images}
+    for name in sorted(captions):
+        if os.path.splitext(name)[0] not in stems and os.path.basename(name) != "_review.tsv":
+            problems.append("%s has no image" % name)
+
+    if manifest:
+        key = "zip_image" if is_zip else "out_image"
+        recorded = [e for e in manifest.get("entries", []) if e.get("status") == "ok"]
+        for entry in recorded:
+            name = (entry.get(key) or entry.get("out_image") or "").replace("\\", "/")
+            if name not in files:
+                problems.append("manifest lists %s but it is not here" % name)
+            elif hashlib.sha256(read(name)).hexdigest() != entry.get("source_sha256"):
+                problems.append("%s is not the image the manifest recorded" % name)
+        if len(recorded) != len(images):
+            problems.append("manifest records %d pair(s), found %d image(s)" % (len(recorded), len(images)))
+    if not images:
+        problems.append("no images found")
+    if archive is not None:
+        archive.close()
+    return {"schema": 1, "path": os.path.abspath(path), "kind": "archive" if is_zip else "folder",
+            "pairs": pairs, "images": len(images), "trigger": trigger or None,
+            "manifest": bool(manifest), "status": "FAIL" if problems else "PASS",
+            "problems": problems}
+
+
+# --------------------------------------------------------------------- main
+
+def main_inspect(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="anima_dataset.py inspect",
+                                 description="Report on a source folder. Writes nothing.")
+    ap.add_argument("--images", required=True)
+    ap.add_argument("--no-near", action="store_true", help="skip the near-duplicate pass")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args(argv)
+    if not os.path.isdir(args.images):
+        raise SystemExit("not a folder: " + args.images)
+    report = inspect_folder(args.images, near=not args.no_near)
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print_inspect(report)
+    return 0 if report["usable"] else 2
+
+
+def main_validate(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="anima_dataset.py validate",
+                                 description="Check a dataset folder or archive. Changes nothing.")
+    ap.add_argument("path", help="dataset folder or .zip")
+    ap.add_argument("--trigger", default="", help="expect every caption to start with this")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args(argv)
+    report = validate_dataset(args.path, args.trigger)
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print("%s  %s  %d pair(s)" % (report["status"], report["path"], report["pairs"]))
+        for problem in report["problems"]:
+            print("  - " + problem)
+    return 0 if report["status"] == "PASS" else 2
+
+
 def main(argv: list[str] | None = None, tagger_factory=None) -> int:
-    ap = argparse.ArgumentParser(description="Build an Anima LoRA dataset from a folder.")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "inspect":
+        return main_inspect(argv[1:])
+    if argv and argv[0] == "validate":
+        return main_validate(argv[1:])
+    if argv and argv[0] == "build":
+        argv = argv[1:]
+    ap = argparse.ArgumentParser(
+        description="Build an Anima LoRA dataset from a folder.",
+        epilog="Other commands: `inspect --images DIR` reports on a source folder; "
+               "`validate PATH` checks a finished folder or archive. "
+               "Exit codes: 0 clean, 1 archive does not match, 2 something was left out or failed.")
     ap.add_argument("--images", required=True, help="source folder (read-only)")
     ap.add_argument("--out", default=None,
                     help="output dataset folder (default: <images>/anima-dataset)")
@@ -720,13 +1291,31 @@ def main(argv: list[str] | None = None, tagger_factory=None) -> int:
     ap.add_argument("--max-tags", type=int, default=40)
     ap.add_argument("--exclude", default="", help="comma-separated tags to drop")
     ap.add_argument("--drop-artists", action="store_true")
+    ap.add_argument("--order", default="anima", choices=ORDERS,
+                    help="anima: quality, safety, count, character, series, artist, general; "
+                         "source: keep the order the tags came in")
+    ap.add_argument("--keep-bookkeeping", action="store_true",
+                    help="keep post-bookkeeping tags such as 'commentary request' and 'bad id'")
+    ap.add_argument("--drop-rating", action="store_true",
+                    help="drop the safety tag made from a rating: prefix")
+    ap.add_argument("--min-side", type=int, default=0,
+                    help="leave out images whose short side is under this many pixels")
+    ap.add_argument("--keep-duplicates", action="store_true",
+                    help="keep byte-identical images instead of exporting only the first")
     ap.add_argument("--resume", action="store_true", help="keep captions already in --out")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true", help="write into a non-empty --out")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--zip", dest="zip_path", default=None, help="write and verify a Civitai archive")
+    ap.add_argument("--zip", dest="zip_path", default=None, help="write and verify an upload archive")
+    ap.add_argument("--zip-layout", default="flat", choices=ZIP_LAYOUTS,
+                    help="flat: every pair at the archive root (Civitai upload); tree: keep source "
+                         "folders; kohya: one '<repeats>_<trigger>' folder")
+    ap.add_argument("--repeats", type=int, default=10, help="repeat count for --zip-layout kohya")
+    ap.add_argument("--json", action="store_true",
+                    help="print one JSON result on stdout; the readable report goes to stderr")
     args = ap.parse_args(argv)
     args.exclude = {normalize_tag(t) for t in args.exclude.split(",") if t.strip()}
+    say = (lambda *a: print(*a, file=sys.stderr)) if args.json else print
 
     if not os.path.isdir(args.images):
         raise SystemExit("not a folder: " + args.images)
@@ -745,12 +1334,24 @@ def main(argv: list[str] | None = None, tagger_factory=None) -> int:
         weights_sha = sha256_of(onnx_path) if os.path.isfile(onnx_path) else None
     manifest = build_manifest(args, entries, weights_sha)
 
+    def result(code: int, **extra) -> int:
+        if args.json:
+            print(json.dumps({
+                "schema": 1, "exit": code, "out": os.path.abspath(args.out),
+                "dry_run": bool(args.dry_run), "images_seen": manifest["images_seen"],
+                "images_exported": manifest["images_exported"], "excluded": manifest["excluded"],
+                "sources": manifest["sources"], "sizes": manifest["sizes"],
+                "warnings": manifest["warnings"], "problems": problems, **extra,
+            }, indent=2, ensure_ascii=False))
+        return code
+
     if args.dry_run:
         for entry in entries:
-            print("%-44s %-16s %s" % (entry["out_rel"], entry["status"], entry["caption"][:70]))
-        print("\n%d seen, %d exportable, nothing written (--dry-run)"
-              % (len(entries), manifest["images_exported"]))
-        return 0
+            say("%-44s %-16s %s" % (entry["out_rel"], entry["status"], entry["caption"][:70]))
+        say("\n%d seen, %d exportable, nothing written (--dry-run)"
+            % (len(entries), manifest["images_exported"]))
+        return result(0, captions=[{"image": e["out_rel"], "status": e["status"],
+                                    "caption": e["caption"]} for e in entries])
 
     written, write_problems = write_dataset(entries, args)
     problems.extend(write_problems)
@@ -761,31 +1362,40 @@ def main(argv: list[str] | None = None, tagger_factory=None) -> int:
     review_path = write_review(entries, args.out)
 
     if manifest["warnings"]:
-        print("Warnings:")
+        say("Warnings:")
         for warning in manifest["warnings"]:
-            print("  -", warning)
+            say("  -", warning)
 
+    archive = None
     if args.zip_path:
         export_zip(args.out, manifest, args.zip_path)
         zip_problems = verify_zip(args.zip_path, manifest)
         if zip_problems:
-            print("archive does NOT match the dataset:")
+            say("archive does NOT match the dataset:")
             for problem in zip_problems:
-                print("  -", problem)
-            return 1
+                say("  -", problem)
+            problems.extend(zip_problems)
+            return result(1, archive={"path": os.path.abspath(args.zip_path), "verified": False})
+        archive = {"path": os.path.abspath(args.zip_path), "layout": args.zip_layout,
+                   "verified": bool(manifest["images_exported"]),
+                   "pairs": manifest["images_exported"]}
         if manifest["images_exported"]:
-            print("archive verified:", args.zip_path)
+            say("archive verified:", args.zip_path)
         else:
-            print("archive written but holds no usable pairs:", args.zip_path)
+            say("archive written but holds no usable pairs:", args.zip_path)
 
-    print("\n%d seen, %d exported to %s" % (len(entries), len(written), args.out))
-    print("review:", review_path)
+    say("\n%d seen, %d exported to %s" % (len(entries), len(written), args.out))
+    if manifest["excluded"]:
+        say("left out: " + ", ".join("%s %d" % kv for kv in sorted(manifest["excluded"].items())))
+    say("review:", review_path)
+    extra = {"manifest": manifest_path, "review": review_path, "archive": archive}
+    # An exact duplicate that was left out is the tool doing its job, not a failure.
     if problems:
-        print("\n%d problem(s):" % len(problems))
+        say("\n%d problem(s):" % len(problems))
         for problem in problems[:20]:
-            print("  -", problem)
-        return 2
-    return 0
+            say("  -", problem)
+        return result(2, **extra)
+    return result(0, **extra)
 
 
 if __name__ == "__main__":

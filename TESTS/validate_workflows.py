@@ -33,19 +33,44 @@ def model_dirs():
     env = os.environ.get("COMFYUI_MODEL_DIRS")
     if env:
         return [d for d in env.split(os.pathsep) if d]
-    roots = [os.environ.get("COMFYUI_ROOT"),
-             r"S:\Misc\SwarmUI\dlbackend\comfy\ComfyUI",
-             os.path.expanduser("~/ComfyUI"),
-             "C:/ComfyUI"]
+    roots = [os.environ.get("COMFYUI_ROOT"), os.path.expanduser("~/ComfyUI"), "C:/ComfyUI"]
+    swarm_roots = [os.environ.get("SWARMUI_ROOT")] + recorded_frontends("SwarmUI")
+    roots += recorded_frontends("ComfyUI")
     dirs = []
+    for swarm in swarm_roots:
+        if not swarm:
+            continue
+        roots.append(os.path.join(swarm, "dlbackend", "comfy", "ComfyUI"))
+        # SwarmUI keeps checkpoints in its own tree, in folders the user names.
+        base = os.path.join(swarm, "Models", "Stable-Diffusion")
+        for folder, subfolders, _files in os.walk(base):
+            dirs.append(folder)
+            if folder.count(os.sep) - base.count(os.sep) >= 2:
+                subfolders[:] = []
     for r in roots:
         if not r:
             continue
         dirs += [os.path.join(r, "models", "diffusion_models"),
                  os.path.join(r, "models", "unet")]
-    dirs += [r"S:\Misc\SwarmUI\Models\Stable-Diffusion\Anima",
-             r"S:\Misc\SwarmUI\Models\Stable-Diffusion\Anima\Anime"]
     return dirs
+
+
+def recorded_frontends(kind):
+    """Install folders the installer recorded on this machine, newest location first."""
+    found = []
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    for folder in ("comfy-kit", "Ultimate-AI-Starter-Bundle"):
+        path = os.path.join(base, folder, "anima-swarmui.json")
+        try:
+            with open(path, encoding="utf-8-sig") as handle:
+                state = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        for item in state.get("frontends") or []:
+            if isinstance(item, dict) and item.get("kind") == kind and item.get("root"):
+                if os.path.isdir(item["root"]) and item["root"] not in found:
+                    found.append(item["root"])
+    return found
 
 
 def block_count(path):

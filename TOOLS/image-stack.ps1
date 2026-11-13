@@ -22,6 +22,11 @@
     merge -Donors a,b [-Weights 0.85,0.75] [-Out <file>] [-Scale 1.0]
                                  4-way Anima checkpoint merge to a real file
     mcp [-Write <path>] [<agent>] print or write a ComfyUI MCP client config
+    python                        print the interpreter this stack uses (the one
+                                 that has torch); exit 1 when none is found
+
+  Dataset preparation is its own tool, TOOLS\dataset.ps1, because its arguments
+  (--out, --mode, --force) would collide with the parameters of this script.
 
 .EXAMPLE
   powershell -File TOOLS\image-stack.ps1 status
@@ -31,7 +36,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('status', 'install', 'presets', 'generate', 'merge', 'mcp', 'help')]
+  [ValidateSet('status', 'install', 'presets', 'generate', 'merge', 'mcp', 'python', 'help')]
   [string]$Verb = 'status',
 
   [string]$Preset = 'Anima - Author Daily (Euler + SGM)',
@@ -118,7 +123,6 @@ function Get-ComfyRoot {
     (Join-Path $HOME 'Documents\ComfyUI'),
     'C:\ComfyUI',
     'C:\ComfyUI_windows_portable\ComfyUI',
-    'S:\Misc\ComfyUI',
     'D:\ComfyUI'
   )
   foreach ($c in $candidates) {
@@ -867,5 +871,11 @@ switch ($Verb) {
   'generate' { Invoke-Generate }
   'merge'    { Invoke-Merge }
   'mcp'      { Show-Mcp }
+  'python'   {
+    # Machine-readable on purpose: one line, the path, nothing else.
+    $found = Find-Python
+    if (-not $found) { exit 1 }
+    Write-Output $found
+  }
   'help'     { Get-Help $PSCommandPath -Detailed }
 }
