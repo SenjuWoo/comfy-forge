@@ -3,7 +3,7 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.7.0). Since 0.5.1 the tag, VERSION, changelog
+**Version** — see `VERSION` (0.8.0). Since 0.5.1 the tag, VERSION, changelog
 heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and the
 `release-verify` workflow that runs on every tag.
 
@@ -47,6 +47,7 @@ heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and t
 machine. The code paths exist and are exercised on this machine, but no clean
 environment has been used, so this stays UNVERIFIED rather than claimed.
 PowerShell 7 beyond CI is also unverified; local checks run on 5.1.
+- v0.8.0: ACE-Step 1.5 music. `TOOLS/music.py` (+ `music.ps1`) generates through ComfyUI's native nodes; six variants in `presets/music/` (upstream Comfy-Org templates, MIT); `TOOLS/Install-MusicModels.ps1` size-verifies the weights; `status` reports ready variants. Verified: `TESTS/test_music.py` (generator vs templates vs installer, stub-backend CLI runs); all six graphs x flac/mp3/opus accepted by a headless ComfyUI 0.44.0 except for the uninstalled model files; a bad key and a bad `format.quality` were rejected. **Not run: any real render.** The weights (aio is 10,025,478,736 bytes) have not been downloaded on this machine; `python TESTS/integration_music.py` is the live check and exits 3 until they are.
 - v0.7.0: dataset pipeline end to end. `anima_dataset.py inspect` (read-only folder report with exact and near duplicates, sizes, tag statistics, next command), `validate` (folder or archive), booru prefix handling (`artist:` to `@name`, `rating:` to a safety tag), post-bookkeeping tags dropped and listed, Anima section order, duplicate and `--min-side` filtering, flat upload archive, `--json`. `TESTS/test_dataset_pipeline.py` drives real processes through a folder named with a space, `!`, parentheses and a non-ASCII letter. Not run: an actual upload, and the tagger path on a real collection in this release.
 - v0.6.2: 3D generation widgets locked in `presets/3d/generation.json` (stock knobs; the 700,000 decimate value is a sculpt and fails the game-ready gate). `TOOLS/game-ready.ps1` delegates to Asset Forge `mesh-gameready`. Default budget `game` hard-fails above 20,000 triangles. comfy-forge does not ship a second optimizer.
 - v0.6.1: 3D templates verified end-to-end (idol/pixal3d single/pixal3d multi, see docs/3D-MODELS.md); docs/PRODUCTION-WORKFLOWS.md added (AssetForge vs comfy-forge decision matrix). Pixal3D recommended overall; Idol kept for previews.

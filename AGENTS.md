@@ -19,6 +19,8 @@ python TOOLS/anima_dataset.py inspect --images DIR --json
 | Render from a preset | `TOOLS\image-stack.ps1 generate -Prompt ... -Preset ...` | `README.md` |
 | Merge checkpoints | `TOOLS\image-stack.ps1 merge -Donors a,b` | `docs/MERGE.md` |
 | Image to 3D, then game-ready | `presets/3d/`, `TOOLS\game-ready.ps1` (delegates to Asset Forge) | `docs/3D-MODELS.md`, `docs/GAME-READY.md` |
+| Song or instrumental from a text prompt | `python TOOLS/music.py check\|generate` (`TOOLS\music.ps1`) | `docs/MUSIC.md` |
+| Fetch ACE-Step weights | `TOOLS\Install-MusicModels.ps1 -WhatIf` then `-Set aio` | `docs/MUSIC.md` |
 | Wire an agent to ComfyUI | `TOOLS\image-stack.ps1 mcp` | `README.md` |
 
 ## Dataset work
@@ -44,6 +46,15 @@ Call the Python tool directly, or `TOOLS\dataset.ps1` from PowerShell. Do not ro
 - No training, no upload, no account action.
 - A structural check is not a render. Say which tests ran and which need a running backend.
 
+## Music work
+
+1. `check --variant aio` first. Exit 3 means no backend, 1 means a node or model file is missing (it names the installer set).
+2. `build` writes the API graph with no backend, for review or for another submitter.
+3. Call `TOOLS\music.ps1` or `music.py` directly. Do not route music arguments through `image-stack.ps1` (`--out`, `--seed`, `--format` bind to its parameters).
+4. The six `presets/music/` files are upstream templates; `TESTS/test_music.py` fails if the generator drifts from them. Change a variant by changing both together.
+5. Weights are opt-in downloads (up to ~28 GB for `all`). Never download without the operator's go-ahead; `-WhatIf` lists the files.
+6. Sound effects and game-audio production belong to Asset Forge, not here.
+
 ## Tests
 
 `TOOLS/preflight.ps1` runs every local check. The dataset suites need only Python and Pillow:
@@ -51,4 +62,6 @@ Call the Python tool directly, or `TOOLS\dataset.ps1` from PowerShell. Do not ro
 ```text
 python TESTS/test_dataset_prep.py
 python TESTS/test_dataset_pipeline.py
+python TESTS/test_music.py            # templates vs generator vs installer, stub backend
+python TESTS/integration_music.py     # needs a backend and the weights; exit 3 = unverified
 ```

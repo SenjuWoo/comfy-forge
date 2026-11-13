@@ -27,6 +27,8 @@
 
   Dataset preparation is its own tool, TOOLS\dataset.ps1, because its arguments
   (--out, --mode, --force) would collide with the parameters of this script.
+  Music generation (ACE-Step 1.5) is TOOLS\music.ps1 for the same reason; its weights
+  come from TOOLS\Install-MusicModels.ps1, and `status` reports which variants are ready.
 
 .EXAMPLE
   powershell -File TOOLS\image-stack.ps1 status
@@ -255,6 +257,35 @@ function Show-Status {
   if ($cp) { Ok "comfyui  ComfyUI API on port $cp (MCP target)" } else { Note 'comfyui  no ComfyUI API port answered' }
 
   Show-Requirements
+  Show-Music
+}
+
+# Music (ACE-Step 1.5): read-only. Which variants have every file on disk. The file
+# list comes from TOOLS\music.py so there is one table, not two.
+function Show-Music {
+  $py = Find-Python
+  if (-not $py) { return }
+  $roots = @()
+  $swarm = Get-SwarmRoot
+  if ($swarm) { $roots += (Join-Path $swarm 'dlbackend\comfy\ComfyUI') }
+  $comfy = Get-ComfyRoot
+  if ($comfy) { $roots += $comfy }
+  $roots = @($roots | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'models') })
+  if (-not $roots.Count) { return }
+  try { $table = (& $py (Join-Path $PSScriptRoot 'music.py') variants --json) -join "`n" | ConvertFrom-Json }
+  catch { Note 'music    could not read TOOLS\music.py variants'; return }
+  $ready = @()
+  foreach ($variant in $table.PSObject.Properties) {
+    $all = $true
+    foreach ($f in @($variant.Value.files)) {
+      $found = $false
+      foreach ($r in $roots) { if (Test-Path -LiteralPath (Join-Path $r (Join-Path 'models' (Join-Path $f[0] $f[1])))) { $found = $true; break } }
+      if (-not $found) { $all = $false; break }
+    }
+    if ($all) { $ready += $variant.Name }
+  }
+  if ($ready.Count) { Ok ("music    ACE-Step 1.5 ready: {0}" -f ($ready -join ', ')) }
+  else { Note 'music    ACE-Step 1.5 weights not installed (TOOLS\Install-MusicModels.ps1 -WhatIf shows the list)' }
 }
 
 # ---------------------------------------------------------------------------

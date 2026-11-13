@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.8.0 - Music: ACE-Step 1.5
+
+Text-to-music through ComfyUI's built-in ACE-Step 1.5 support: a style description and
+optional lyrics in, an audio file out.
+
+- `TOOLS/music.py` (`TOOLS\music.ps1` from PowerShell) with `variants`, `check`, `build` and
+  `generate`. It builds the ComfyUI API graph directly, submits it, waits, downloads the file and
+  prints the seed. `--instrumental`, `--lyrics` / `--lyrics-file`, `--duration`, `--bpm`, `--key`,
+  `--time-signature`, `--language`, `--seed`, `--format flac|mp3|opus`, and sampler overrides.
+  Exit 3 means no backend (unverified, never a pass), 2 bad arguments, 1 failure.
+- Six variants as stock Comfy-Org templates in `presets/music/` (MIT): `aio`, `turbo`, `turbo-4b`,
+  `xl-turbo`, `xl-sft`, `xl-base`. `check` names the missing node or model file and the installer
+  set that fixes it; `generate` refuses before submitting anything.
+- `TOOLS/Install-MusicModels.ps1` fetches the weights on request (`-WhatIf` lists them first). Every
+  file is checked against its published byte size before it is moved into place, and an existing file
+  that does not match is left alone.
+- `image-stack.ps1 status` ends with a `music` line listing the variants whose files are installed.
+- `TESTS/test_music.py` compares the generator with each shipped template (wiring, sampler,
+  shift, loader files, encoder defaults) and the installer table with the model URLs inside the
+  templates, then drives `generate` as a real process against a stub backend. `TESTS/integration_music.py`
+  is the live check: it decodes the rendered audio and checks length and signal.
+- Checked against ComfyUI 0.44.0: every variant and save format was submitted to a headless backend,
+  which accepted every node and widget value and refused only the weights that are not installed.
+- Not in this release: cover, repaint and extend (not part of ComfyUI's native support), reference-audio
+  timbre, and the Gemini-assisted template. A real render has not been run here; the weights are an
+  opt-in download.
+
 ## v0.7.0 - Tagged folder in, verified upload archive out
 
 The dataset tool now covers the whole path from a folder of tagged images to an
