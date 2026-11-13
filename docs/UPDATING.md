@@ -17,7 +17,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 status
 ## Review an upstream change before pinning it
 
 ```powershell
-cd "S:\Misc\SwarmUI\dlbackend\comfy\ComfyUI\custom_nodes\hades-anima-suite"
+cd "<SwarmUI>\dlbackend\comfy\ComfyUI\custom_nodes\hades-anima-suite"
 git fetch --all
 git log --oneline HEAD..origin/main
 git diff HEAD origin/main -- pyproject.toml
@@ -35,7 +35,7 @@ Restart the backend, then confirm the nodes still register and that a real rende
 still works:
 
 ```powershell
-& "S:\Misc\SwarmUI\dlbackend\comfy\python_embeded\python.exe" TESTS\integration_live.py --url http://127.0.0.1:7822
+& "<SwarmUI>\dlbackend\comfy\python_embeded\python.exe" TESTS\integration_live.py --url http://127.0.0.1:7822
 ```
 
 ## Pin it only after that passes

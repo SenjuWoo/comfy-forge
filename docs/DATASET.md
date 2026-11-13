@@ -4,6 +4,33 @@
 into a training dataset for Anima. It never trains and never uploads. Source images and
 their `.txt` captions are **read-only**; everything it produces lands in a new folder.
 
+## Three commands
+
+```
+python TOOLS/anima_dataset.py inspect  --images <folder> [--json]
+python TOOLS/anima_dataset.py [build]  --images <folder> [options]
+python TOOLS/anima_dataset.py validate <folder-or-zip> [--trigger token] [--json]
+```
+
+`inspect` and `validate` change nothing. Exit codes: `0` clean, `1` the archive does not
+match the dataset, `2` something was left out or failed (the reason is printed and is in
+`_review.tsv`). From PowerShell, `TOOLS\dataset.ps1` forwards its arguments unchanged.
+
+### Look before you build
+
+`inspect` answers the questions that decide the build: how many images have a caption, which
+have none, which captions have no image, which files do not decode, which images are
+byte-identical, which are the same picture resized or re-encoded (a difference hash, within
+4 bits of 64), how large the short sides are, which tags lead the counts and which sit in at
+least 80% of captions. It ends with the build command that fits the folder.
+
+### Check before you upload
+
+`validate` reads a dataset folder or the archive itself. It fails when an image has no
+caption, a caption is empty or has no image, two images would share a caption name, an image
+does not decode, an image is no longer the file the manifest recorded, the trigger does not
+lead a caption, or an upload archive spreads its pairs over several folders.
+
 ## The short version
 
 ```
@@ -72,6 +99,49 @@ Booru tags become Anima caption text: `long_hair` → `long hair`, lowercased, w
 collapsed, duplicates removed after normalisation, and `score_7` keeps its underscore
 because that is the exception Anima expects. Commas and newlines both split a caption file.
 
+**Prefixes.** An exporter can write what kind of tag each one is. Those prefixes are read and
+never copied into a caption:
+
+| in the source | in the caption |
+|---|---|
+| `artist:name`, `creator:name` | `@name` (dropped by `--drop-artists`) |
+| `character:name` | `name`, placed in the character section |
+| `copyright:name`, `series:name` | `name`, placed in the series section |
+| `meta:name` | `name`, placed with the quality tags unless it is bookkeeping |
+| `rating:g` / `s` / `q` / `e` (or the words) | `safe` / `sensitive` / `nsfw` / `explicit` (dropped by `--drop-rating`) |
+
+A colon alone does not make a prefix: `:3`, `re:zero` and `nier:automata` stay whole.
+
+**Bookkeeping tags.** Tags that describe the post rather than the picture are dropped:
+`tagme`, `commentary`, anything ending in ` request` or ` commentary`, `translated`,
+`bad id`, `bad pixiv id`, `md5 mismatch`, `duplicate`, reward and third-party source
+markers, and similar. Each dropped tag is listed in the notes column of `_review.tsv`.
+`--keep-bookkeeping` keeps them. `highres`, `absurdres` and `lowres` describe the picture
+and are kept.
+
+**Order.** `--order anima` (the default) arranges each caption the way the model was trained:
+trigger, quality and meta (`score_N`, `masterpiece`, `highres`, `year NNNN`), safety, subject
+count (`1girl`, `solo`, `no humans`), character, series, artist, then everything else. Inside
+a section the source order is kept, and tags named by `--concept` still lead the general
+section. Character and series placement needs either a prefix in the source or the tagger's
+category file. `--order source` leaves the tags where they were.
+
+## What gets left out, and why
+
+Every image that is not exported has a status in the manifest and the review file:
+
+| status | meaning |
+|---|---|
+| `duplicate` | byte-identical to another image; the copy with the richer caption is kept (`--keep-duplicates` exports all) |
+| `too-small` | short side under `--min-side` |
+| `unreadable` | the file does not decode |
+| `missing-caption` | no `.txt`, and the mode or the missing tagger means none is written |
+| `empty-caption` | the caption ended up with no tags |
+| `conflict` | you edited the caption and its source changed too (see below) |
+
+Near duplicates are reported by `inspect` and never removed for you: which of two crops is
+the better one is a judgement.
+
 ## Review before you train
 
 `_review.tsv` opens in any spreadsheet: image, where the caption came from (`grabber`,
@@ -99,7 +169,8 @@ of every source image *and* every source caption:
   caption, so it stops before writing anything and asks for `--force` (rebuild from source)
   or a new `--out`.
 - **settings changed** — `--type`, `--trigger`, `--concept`, thresholds, `--max-tags`,
-  `--exclude`, `--drop-artists` or the tagger are recorded in the manifest. Resume refuses to
+  `--exclude`, `--drop-artists`, `--order`, `--min-side`, the bookkeeping, rating and duplicate
+  switches or the tagger are recorded in the manifest. Resume refuses to
   mix captions built under different ones.
 
 **Resolving a conflict** is deliberate, never automatic. Rerunning alone changes nothing: the
@@ -117,7 +188,11 @@ An archive is only called verified when it actually holds pairs.
 
 ## The archive
 
-`--zip` writes images and their captions, `trigger.txt`, and the manifest. It is then
+`--zip` writes images and their captions, `trigger.txt`, and the manifest. The default
+layout is `flat`: every pair at the archive root, which is what an upload trainer expects,
+with names kept unique when two source folders hold the same file name. `--zip-layout tree`
+keeps the source folders; `--zip-layout kohya --repeats N` puts the pairs in one
+`<repeats>_<trigger>` folder. The archive is then
 **reopened and verified against the manifest** — every pair must exist and every caption
 must match, or the run fails instead of handing you a broken archive.
 
@@ -136,7 +211,12 @@ must match, or the run fails instead of handing you a broken archive.
 | `--resume` | keep captions already in the output folder; regenerate any whose source image changed |
 | `--force` | write into a non-empty output folder, refreshing anything whose source changed |
 | `--dry-run` | print the plan, write nothing |
-| `--zip` | write and verify the Civitai archive |
+| `--zip` | write and verify the upload archive |
+| `--zip-layout` | `flat` (default), `tree`, `kohya` with `--repeats` |
+| `--order` | `anima` (default) or `source` |
+| `--min-side` | leave out images under this short side |
+| `--keep-duplicates`, `--keep-bookkeeping`, `--drop-rating` | turn a default filter off, or the safety tag off |
+| `--json` | one machine-readable result on stdout |
 
 ## What it warns you about
 

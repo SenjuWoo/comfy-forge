@@ -79,7 +79,7 @@ function Resolve-ComfyRoot {
     if ($env:COMFYUI_ROOT -and (Test-Path -LiteralPath $env:COMFYUI_ROOT)) { return $env:COMFYUI_ROOT }
     foreach ($c in @((Join-Path $HOME 'ComfyUI'), (Join-Path $HOME 'Documents\ComfyUI'), 'C:\ComfyUI',
                      (Join-Path $HOME 'ComfyUI_windows_portable\ComfyUI'), 'C:\ComfyUI_windows_portable\ComfyUI',
-                     'S:\Misc\ComfyUI', 'D:\ComfyUI')) {
+                     'D:\ComfyUI')) {
         if (Test-Path -LiteralPath (Join-Path $c 'models')) { return $c }
     }
     return $null

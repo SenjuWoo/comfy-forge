@@ -7,7 +7,7 @@
 - Versioning: SemVer tags (`v0.x.y`), `CHANGELOG.md` is the record.
 - Repository: `https://github.com/SenjuWoo/comfy-forge` (public, MIT). `main` is protected: every change lands through a pull request with the `test` check green; force pushes and deletions are blocked.
 - Publication intent: this repo is intended as a public starter pack for new image-generation users (Anima-focused). Publish only when the operator asks.
-- Read-only inputs: the installed frontend (`S:\Misc\SwarmUI` on the build machine) and its Models folder. This repo reads them and writes only into them when explicitly asked (`install`, `merge` output, `mcp -Write`).
+- Read-only inputs: the installed frontend and its Models folder. This repo reads them and writes only into them when explicitly asked (`install`, `merge` output, `mcp -Write`).
 - State/output: `out/` and `artifacts/` are local and git-ignored; model weights are never committed.
 - Recovery: `git log` plus the last green tag; `TOOLS/image-stack.ps1 status` reports the installed state.
 

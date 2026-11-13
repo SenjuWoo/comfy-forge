@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.7.0 - Tagged folder in, verified upload archive out
+
+The dataset tool now covers the whole path from a folder of tagged images to an
+archive that is ready to upload, and tells you what it found before it writes.
+
+- `inspect --images <folder>` is a read-only report: image and caption pairs,
+  images with no caption, captions with no image, files that do not decode, exact
+  duplicates, near duplicates (the same picture resized or re-encoded), short-side
+  sizes, the most common tags, tags present in almost every caption, and the
+  command to run next. `--json` gives the same report to a program.
+- `validate <folder-or-zip>` checks a finished dataset or archive: every image has
+  one non-empty caption, every caption has its image, the trigger leads each
+  caption, images still match the manifest, and an upload archive has no folders.
+- Booru prefixes are understood. `artist:name` becomes `@name`, `rating:` becomes
+  the matching safety tag (`safe`, `sensitive`, `nsfw`, `explicit`), and
+  `character:`, `copyright:` and `meta:` are recorded and used for ordering. Tags
+  that merely contain a colon (`:3`, `re:zero`) are left alone.
+- Post-bookkeeping tags (`commentary request`, `bad pixiv id`, `translated`,
+  `tagme` and the like) are dropped, and the review file lists each one that was.
+  `--keep-bookkeeping` keeps them. Picture tags such as `highres` are not touched.
+- Captions follow Anima's section order: quality and meta, safety, subject count,
+  character, series, artist, then everything else. Order inside a section is the
+  source order. `--order source` keeps the old behaviour.
+- Byte-identical images are exported once; the copy whose caption has the most
+  tags is the one kept. `--keep-duplicates` exports them all.
+- `--min-side N` leaves out images whose short side is under N pixels, and a
+  warning counts the images under 768 either way.
+- The upload archive is flat: every pair sits at the archive root, with names
+  kept unique when two source folders hold the same file name. `--zip-layout tree`
+  keeps the folders and `--zip-layout kohya --repeats N` writes one
+  `<repeats>_<trigger>` folder.
+- `--json` prints one machine-readable result (counts, reasons for every image
+  left out, warnings, the archive path and whether it verified); the readable
+  report moves to stderr.
+- A file name or tag that the console code page cannot show no longer ends the
+  run with an encoding error.
+- `TOOLS/dataset.ps1` launches the tool from PowerShell and passes every argument
+  through untouched.
+- A manifest written by an earlier version still resumes when the run asks for
+  the earlier behaviour (`--order source --keep-bookkeeping --keep-duplicates`).
+  Resuming it under the new defaults is refused with the list of what changed,
+  because the captions would no longer be the ones this run produces.
+
+Nothing here trains a model or uploads anything, and source folders are still
+read-only.
+
 ## v0.6.2 - Locked 3D generation settings; game-ready handoff
 
 The Pixal3D and Idol widgets stay on the stock values that produced the measured
@@ -490,7 +536,7 @@ so tests exercise the ownership rule instead of substituting their own writer.
 
 ### P1 - the CLI-surface test could run the real installer
 
-It recognised two hard-coded paths (`S:\Misc\SwarmUI`, `C:\SwarmUI`). The CLI also
+It recognised two hard-coded paths (one fixed drive folder and `C:\SwarmUI`). The CLI also
 discovers a frontend through `SWARMUI_ROOT` and through its saved state file, so an
 install at any other path would have made a read-only test run `install`.
 

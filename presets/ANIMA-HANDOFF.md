@@ -60,7 +60,7 @@ Optional, only with `-IncludeOptional` (~3.1 GB extra):
 .\TOOLS\Ensure-AnimaSwarmUI.ps1 -Force
 
 # Point at a frontend explicitly
-.\TOOLS\Ensure-AnimaSwarmUI.ps1 -SwarmUIRoot 'S:\Misc\SwarmUI'
+.\TOOLS\Ensure-AnimaSwarmUI.ps1 -SwarmUIRoot '<SwarmUI>'
 ```
 
 Downloads resume (`curl.exe -C -`) and stage to a `.part` file, so an

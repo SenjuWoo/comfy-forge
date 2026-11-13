@@ -1,5 +1,7 @@
 # Testing comfy-forge
 
+`<SwarmUI>` below is your SwarmUI folder. `powershell -File TOOLS\image-stack.ps1 python` prints the interpreter the stack uses, so the long path never has to be typed.
+
 Two layers. The fast layer runs anywhere in about a minute; the live layer needs
 a real ComfyUI with models and a GPU, and it is the only layer that proves the
 installation actually renders.
@@ -24,7 +26,7 @@ python TESTS\test_mcp_handshake.py
 them, use the interpreter ComfyUI already ships:
 
 ```powershell
-& "S:\Misc\SwarmUI\dlbackend\comfy\python_embeded\python.exe" TESTS\test_merge.py
+& "<SwarmUI>\dlbackend\comfy\python_embeded\python.exe" TESTS\test_merge.py
 ```
 
 ### What each result means
@@ -46,7 +48,7 @@ that is expected on CI and must never be reported as a pass.
 3. Run:
 
 ```powershell
-& "S:\Misc\SwarmUI\dlbackend\comfy\python_embeded\python.exe" TESTS\integration_live.py --url http://127.0.0.1:7822
+& "<SwarmUI>\dlbackend\comfy\python_embeded\python.exe" TESTS\integration_live.py --url http://127.0.0.1:7822
 ```
 
 It submits an API-format graph (not a UI-save file, which `/prompt` rejects),
@@ -66,7 +68,7 @@ That enqueues through the MCP tool and waits for the job to produce an image.
 ## The four-way merge graph (live, slow)
 
 ```powershell
-& "S:\Misc\SwarmUI\dlbackend\comfy\python_embeded\python.exe" TESTS\integration_merge_graph.py --url http://127.0.0.1:7821
+& "<SwarmUI>\dlbackend\comfy\python_embeded\python.exe" TESTS\integration_merge_graph.py --url http://127.0.0.1:7821
 ```
 
 Builds the graph from the live node schemas, runs `HaDeSAnimaMultiModelMerger`,
@@ -98,7 +100,7 @@ rather than a mocked downloader.
 ## Node-pack dependency checks
 
 ```powershell
-& "S:\Misc\SwarmUI\dlbackend\comfy\python_embeded\python.exe" TOOLS\check_deps.py --pack "S:\Misc\SwarmUI\dlbackend\comfy\ComfyUI\custom_nodes\hades-anima-suite"
+& "<SwarmUI>\dlbackend\comfy\python_embeded\python.exe" TOOLS\check_deps.py --pack "<SwarmUI>\dlbackend\comfy\ComfyUI\custom_nodes\hades-anima-suite"
 ```
 
 Reads `requirements.txt` and `pyproject.toml`, keeps version constraints, and

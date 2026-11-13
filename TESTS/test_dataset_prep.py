@@ -85,8 +85,13 @@ class PilTagger:
 
 
 def png(path, colour=(120, 40, 40)):
+    """A small image that is unique to its path: two fixtures with the same colour are
+    still two different pictures, because byte-identical images are deduplicated."""
     from PIL import Image
-    Image.new("RGB", (48, 48), colour).save(path)
+    image = Image.new("RGB", (48, 48), colour)
+    mark = hashlib.sha256(os.path.abspath(path).encode("utf-8")).digest()
+    image.putpixel((47, 47), tuple(mark[:3]))
+    image.save(path)
 
 
 def sha(path):

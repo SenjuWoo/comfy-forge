@@ -58,6 +58,9 @@ jobs:
       - name: Dataset captions (no tagger weights needed)
         run: python TESTS/test_dataset_prep.py
 
+      - name: Dataset pipeline (inspect, filters, archive layout, validate, launcher)
+        run: python TESTS/test_dataset_pipeline.py
+
       - name: Release identity (VERSION, changelog, STATE)
         shell: powershell
         run: ./TESTS/Test-Release.ps1

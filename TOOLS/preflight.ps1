@@ -35,7 +35,13 @@ function Run-Check([string]$Name, [string]$Exe, [string[]]$Arguments, [int]$Unve
     else { Add-Result $Name 'FAIL' $tail }
 }
 
-$py = if ($env:COMFY_PYTHON) { $env:COMFY_PYTHON } else { 'python' }
+# The merge checks need torch, which lives in the stack's own interpreter and
+# usually not in the Python on PATH. Ask the CLI which interpreter that is.
+$py = $env:COMFY_PYTHON
+if (-not $py) {
+    $py = (& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'image-stack.ps1') python 2>$null | Select-Object -Last 1)
+    if ($LASTEXITCODE -ne 0 -or -not $py -or -not (Test-Path -LiteralPath $py)) { $py = 'python' }
+}
 $jsonOut = if ($env:COMFY_PREFLIGHT_JSON) { $env:COMFY_PREFLIGHT_JSON } else { $null }
 
 Write-Host '== comfy-forge preflight =='
@@ -53,6 +59,8 @@ Run-Check 'deps resolver'     $py @('TOOLS\check_deps.py', '--self-test')
 Run-Check 'workflow structure' $py @('TESTS\validate_workflows.py') 3
 Run-Check '3d generation lock' $py @('TESTS\test_3d_generation.py')
 Run-Check 'workflow convert'  $py @('TESTS\test_workflow_convert.py')
+Run-Check 'dataset captions'  $py @('TESTS\test_dataset_prep.py')
+Run-Check 'dataset pipeline'  $py @('TESTS\test_dataset_pipeline.py')
 Run-Check 'workflow lineage gate' $py @('TESTS\validate_workflows.py', '--self-test')
 Run-Check 'dependency lock'   $py @('TOOLS\validate-lock.py') 3
 Run-Check 'MCP surface'       $py @('TESTS\test_mcp_handshake.py') 3

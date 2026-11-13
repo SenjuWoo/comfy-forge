@@ -46,8 +46,8 @@ function Get-RealSwarmRoot {
       }
     } catch { }
   }
-  foreach ($p in @('S:\Misc\SwarmUI', 'C:\SwarmUI', (Join-Path $env:USERPROFILE 'SwarmUI'))) {
-    if (Test-Path -LiteralPath $p) { return $p }
+  foreach ($p in @($env:SWARMUI_ROOT, 'C:\SwarmUI', (Join-Path $env:USERPROFILE 'SwarmUI'))) {
+    if ($p -and (Test-Path -LiteralPath $p)) { return $p }
   }
   return $null
 }
