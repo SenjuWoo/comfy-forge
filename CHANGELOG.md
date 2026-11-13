@@ -34,6 +34,8 @@ archive that is ready to upload, and tells you what it found before it writes.
 - `--json` prints one machine-readable result (counts, reasons for every image
   left out, warnings, the archive path and whether it verified); the readable
   report moves to stderr.
+- A file name or tag that the console code page cannot show no longer ends the
+  run with an encoding error.
 - `TOOLS/dataset.ps1` launches the tool from PowerShell and passes every argument
   through untouched.
 - A manifest written by an earlier version still resumes when the run asks for
