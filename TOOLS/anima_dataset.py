@@ -1262,6 +1262,15 @@ def main_validate(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None, tagger_factory=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    # A file name or tag the console code page cannot show must not end the run.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if "--json" in argv and stream is sys.stdout:
+                stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+            else:
+                stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
     if argv and argv[0] == "inspect":
         return main_inspect(argv[1:])
     if argv and argv[0] == "validate":

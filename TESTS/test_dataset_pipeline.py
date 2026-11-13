@@ -20,6 +20,8 @@ from anima_dataset import (  # noqa: E402
     split_namespace, validate_dataset)
 
 fail = 0
+for _stream in (sys.stdout, sys.stderr):
+    _stream.reconfigure(errors="backslashreplace")
 
 
 def check(cond, name):
@@ -122,6 +124,17 @@ def main_test() -> int:
         check("--mode auto" in report["next"] and src in report["next"], "inspect prints the next command")
         code, out, err = run_cli("inspect", "--images", src, "--json")
         check(code == 0 and json.loads(out)["captioned"] == 6, "inspect --json from a real process: %s" % err[-200:])
+        # a name the console cannot encode must not end the run
+        odd = os.path.join(tmp, "odd")
+        os.makedirs(odd)
+        picture(os.path.join(odd, "絵 ★.png"), (9, 99, 199), stripes=2)
+        caption(os.path.join(odd, "絵 ★.txt"), "1girl, 絵")
+        env = dict(os.environ, PYTHONIOENCODING="ascii")
+        for arguments in (["inspect", "--images", odd],
+                          ["--images", odd, "--out", os.path.join(tmp, "odd-out"), "--mode", "convert", "--dry-run"]):
+            done = subprocess.run([sys.executable, TOOL, *arguments], capture_output=True, env=env, timeout=300)
+            check(done.returncode == 0 and b"Traceback" not in done.stderr,
+                  "a name outside the console code page does not crash %s" % arguments[0])
         before = sorted(os.listdir(src))
 
         # --- build -----------------------------------------------------------
