@@ -48,12 +48,13 @@ Call the Python tool directly, or `TOOLS\dataset.ps1` from PowerShell. Do not ro
 
 ## Music work
 
-1. `check --variant aio` first. Exit 3 means no backend, 1 means a node or model file is missing (it names the installer set).
+1. `check` first (`--variant all` lists every variant). It finds the backend itself: `--url`, `COMFYUI_URL`, then ports 8188 and 7820-7832. Exit 3 means no backend, 1 means a node or model file is missing (it names the installer set).
 2. `build` writes the API graph with no backend, for review or for another submitter.
-3. Call `TOOLS\music.ps1` or `music.py` directly. Do not route music arguments through `image-stack.ps1` (`--out`, `--seed`, `--format` bind to its parameters).
-4. The six `presets/music/` files are upstream templates; `TESTS/test_music.py` fails if the generator drifts from them. Change a variant by changing both together.
-5. Weights are opt-in downloads (up to ~28 GB for `all`). Never download without the operator's go-ahead; `-WhatIf` lists the files.
-6. Sound effects and game-audio production belong to Asset Forge, not here.
+3. `generate` prints one JSON line last (`files`, `seeds`, `takes`); every audio file has a `<file>.json` sidecar. Reproduce or vary a take with `--from <sidecar>` (plus `--reseed` for new seeds). Warnings (early silence, long lyrics) go to stderr.
+4. Call `TOOLS\music.ps1` or `music.py` directly. Do not route music arguments through `image-stack.ps1` (`--out`, `--seed`, `--format` bind to its parameters).
+5. The six `presets/music/` files are upstream templates; `TESTS/test_music.py` fails if the generator drifts from them. Change a variant by changing both together.
+6. Weights are opt-in downloads (up to ~28 GB for `all`). Never download without the operator's go-ahead; `-WhatIf` lists the files.
+7. Sound effects and game-audio production belong to Asset Forge, not here. Asset Forge's `audio-music` recipe calls `music.py generate`; keep its flags and the closing JSON line compatible.
 
 ## Tests
 

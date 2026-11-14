@@ -10,15 +10,16 @@
 
   Commands:
     variants                          list the model variants and their files
-    check    [--variant V] [--url U]  is the backend ready for this variant
+    check    [--variant V|all]        is the backend ready (it finds SwarmUI's or ComfyUI's port)
     build    --tags "..." [--out f]   write the ComfyUI API graph, no backend
-    generate --tags "..." [...]       render a song and save the audio file
+    generate --tags "..." [...]       render takes; each file gets a .json sidecar
+    generate --from take.json [...]   render a take again, or vary it (--reseed, --duration ...)
 
   Exit codes: 0 done, 1 failed, 2 bad arguments, 3 no backend reachable.
 
 .EXAMPLE
-  powershell -File TOOLS\music.ps1 check --variant aio
-  powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, vinyl crackle" --instrumental --duration 90 --bpm 82 --key "A minor"
+  powershell -File TOOLS\music.ps1 check --variant all
+  powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, vinyl crackle" --instrumental --duration 90 --bpm 82 --key "A minor" --count 3
   powershell -File TOOLS\music.ps1 generate --variant xl-sft --tags "synthwave, female vocals" --lyrics-file song.txt --duration 180
 #>
 $ErrorActionPreference = 'Stop'

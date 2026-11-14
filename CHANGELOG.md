@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.9.0 - Music: takes, sidecars and replay
+
+Making music is mostly rendering several takes and keeping the good one. The music tool now
+does that, records every take, and can get back to one exactly.
+
+- The backend is found without `--url`: `COMFYUI_URL`, then port 8188 (standalone ComfyUI),
+  then 7820-7832 (SwarmUI's ComfyUI backend). Before, a SwarmUI user had to pass `--url`.
+- `--count N` queues N takes at once; seeds count up from `--seed` or are random and printed.
+  `--name` names the files.
+- Every take is saved with a `<file>.json` sidecar: caption, lyrics, variant, seed, tempo, key,
+  sampler values, ComfyUI version, render time and where the music ends.
+- `generate --from <sidecar>` renders a take again; the same seed and settings give identical
+  samples. Flags change one thing, `--reseed` keeps the settings with new seeds. Only values set
+  by hand carry over, so a take moved to another variant gets that variant's step count.
+- A take that goes silent before the end is flagged (ffmpeg's silence detection), since ACE-Step
+  sometimes finishes early and pads with silence.
+- `--tags-file` for long captions. `check --variant all` lists every variant's state.
+- Refused before anything is sent: a language the node does not accept, zero takes, a negative
+  seed. Lyrics past the documented 4096 characters warn.
+- An existing file is never overwritten, a path the console cannot show no longer crashes the run,
+  a lost backend is a clean failure instead of a traceback, and long renders report progress.
+- `TESTS/integration_music.py` finds the backend the same way and now also renders the same seed
+  twice and requires identical samples.
+- Docs: prompt, lyric and duration guidance from ACE-Step's own guides; `[Instrumental]` confirmed
+  against ACE-Step's inference guide.
+
 ## v0.8.0 - Music: ACE-Step 1.5
 
 Text-to-music through ComfyUI's built-in ACE-Step 1.5 support: a style description and
