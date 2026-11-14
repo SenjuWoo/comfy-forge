@@ -10,9 +10,10 @@ reason; using the wrong one for a job means fighting the workflow. This is the d
 | outputs | game-ready files with QA evidence (reports, review sheets) | images, captions, datasets, raw `.glb`/`.spz` |
 | failure mode | a job fails loudly with exit code 5, never silently ships | model output quality varies per prompt/seed; review is on you |
 | best for | repetition, consistency, budgets, exports | novelty, speed, concept → first draft |
+| audio | voice lines and sound effects (`audio-voice`, `audio-sfx`), finishing and engine export (`audio-process`, `export --target minecraft`) | music: songs and instrumentals (`TOOLS\music.ps1`, ACE-Step 1.5) |
 
-AssetForge deliberately does **not** call generative models except through comfy-forge
-(`comfy-generate`, `comfy-import`). It evaluates every result it produces: `blender-asset-qa`
+AssetForge deliberately does **not** call image or 3D generative models except through comfy-forge
+(`comfy-generate`, `comfy-import`); its own generative step is audio (voice lines and sound effects). It evaluates every result it produces: `blender-asset-qa`
 fails a job on any error (warnings must be justified in writing), the Khronos glTF
 Validator result is recorded in provenance, and QA review sheets are written even on
 failure. That is the "more finetuned, less AI sloppy" path — for assets you ship

@@ -76,6 +76,7 @@ contacting anything, for an agent or script that submits it itself.
 * **The LLM-assisted template** (`audio_ace_step_1_5_split_llm.json`) writes the prompt with a Gemini
   cloud node, which needs an account and sends your text off the machine. It is not shipped.
 * Training or LoRA for ACE-Step.
+* Game-ready finishing. Asset Forge does that: `assetforge.cmd run audio-process --input source=<track.flac> --set loudness=-14 --set channels=2` levels and encodes the track, and `export --target minecraft|godot|roblox` packages it.
 
 ## Verified and not verified
 
