@@ -14,10 +14,12 @@ TESTS/integration_music.py, which needs the weights.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -152,13 +154,18 @@ def test_installer_table():
 # ---------------------------------------------------------------------------
 # Stub backend: speaks just enough of ComfyUI's HTTP API to drive generate.
 # ---------------------------------------------------------------------------
-FLAC = b"fLaC" + b"\x00\x00\x00\x22" + (4096).to_bytes(2, "big") * 2 + b"\x00" * 6 + \
-    ((44100 << 44) | (1 << 41) | (15 << 36) | (44100 * 3)).to_bytes(8, "big") + b"\x00" * 16
+def flac_bytes(seconds, rate=48000):
+    """A FLAC header whose STREAMINFO says `seconds` long, padded past the size floor."""
+    info = (rate << 44) | (1 << 41) | (15 << 36) | int(seconds * rate)
+    return b"fLaC" + b"\x00\x00\x00\x22" + (4096).to_bytes(2, "big") * 2 + b"\x00" * 6 + \
+        info.to_bytes(8, "big") + b"\x00" * 16 + b"\x01" * 30000
 
 
 class Stub(BaseHTTPRequestHandler):
-    visible = True      # are the model files listed?
+    visible = True        # are the model files listed?
+    fixed_name = None     # force every output to this file name
     submitted = []
+    jobs = {}             # prompt_id -> (filename, seconds)
 
     def log_message(self, *a):
         pass
@@ -182,52 +189,149 @@ class Stub(BaseHTTPRequestHandler):
                         "DualCLIPLoader", "VAELoader")}
             classes["CheckpointLoaderSimple"] = {"input": {"required": {"ckpt_name": [files]}}}
             return self.send(200, classes)
+        if self.path == "/queue":
+            return self.send(200, {"queue_running": [], "queue_pending": []})
         if self.path.startswith("/history/"):
             pid = self.path.rsplit("/", 1)[1]
+            name, _seconds = Stub.jobs[pid]
             return self.send(200, {pid: {"status": {"status_str": "success"},
-                                         "outputs": {"16": {"audio": [{"filename": "comfy-forge_00001_.flac",
-                                                                       "subfolder": "audio", "type": "output"}]}}}})
+                                         "outputs": {"16": {"audio": [{"filename": name, "subfolder": "audio",
+                                                                       "type": "output"}]}}}})
         if self.path.startswith("/view?"):
-            return self.send(200, FLAC + b"\x01" * 30000, "audio/flac")
+            name = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)["filename"][0]
+            seconds = next(sec for n, sec in Stub.jobs.values() if n == name)
+            return self.send(200, flac_bytes(seconds), "audio/flac")
         self.send(404, {})
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        Stub.submitted.append(body["prompt"])
-        self.send(200, {"prompt_id": "stub-1", "number": 1, "node_errors": {}})
+        graph = body["prompt"]
+        Stub.submitted.append(graph)
+        pid = f"stub-{len(Stub.submitted)}"
+        stem = graph["16"]["inputs"]["filename_prefix"].rsplit("/", 1)[-1]
+        name = Stub.fixed_name or f"{stem}_{len(Stub.submitted):05d}_.flac"
+        Stub.jobs[pid] = (name, graph["13"]["inputs"]["seconds"])
+        self.send(200, {"prompt_id": pid, "number": len(Stub.submitted), "node_errors": {}})
 
 
-def run_cli(args, url=None, timeout=60):
+def run_cli(args, url=None, timeout=60, env=None):
     cmd = [sys.executable, os.path.join(REPO, "TOOLS", "music.py")] + args
     if url:
         cmd += ["--url", url]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    full_env = {k: v for k, v in os.environ.items() if k not in ("COMFYUI_URL", "COMFY_FORGE_PROBE_PORTS")}
+    full_env.update(env or {})
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          timeout=timeout, env=full_env)
+
+
+def last_json(r):
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {}
+
+
+def strip_seed(graph):
+    g = json.loads(json.dumps(graph))
+    g["11"]["inputs"]["seed"] = g["14"]["inputs"]["seed"] = None
+    return g
 
 
 def test_cli():
     server = HTTPServer(("127.0.0.1", 0), Stub)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{server.server_address[1]}"
+    port = server.server_address[1]
+    url = f"http://127.0.0.1:{port}"
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "music folder (a!)")
         r = run_cli(["generate", "--tags", "lo-fi, mellow", "--instrumental", "--duration", "30",
                      "--seed", "5", "--out", out], url)
         check(r.returncode == 0, f"generate against a stub backend exits 0 ({r.stdout[-200:]}{r.stderr[-200:]})")
-        written = os.listdir(out) if os.path.isdir(out) else []
-        check(written == ["comfy-forge_00001_.flac"], "audio landed in a folder with spaces and punctuation")
+        written = sorted(os.listdir(out)) if os.path.isdir(out) else []
+        check(written == ["comfy-forge_00001_.flac", "comfy-forge_00001_.flac.json"],
+              f"audio and its sidecar landed in a folder with spaces and punctuation ({written})")
         sent = Stub.submitted[-1] if Stub.submitted else {}
         check(sent.get("11", {}).get("inputs", {}).get("lyrics") == music.INSTRUMENTAL_LYRICS, "--instrumental sends the tag")
         check(sent.get("14", {}).get("inputs", {}).get("seed") == 5, "--seed reaches the sampler")
         check(sent.get("16", {}).get("inputs", {}).get("format") == "flac", "aio default format is flac")
         check("seed 5" in r.stdout, "the seed is printed so a take can be reproduced")
+        check("warn" not in r.stderr, "a take of the asked-for length raises no length warning")
+        side = os.path.join(out, "comfy-forge_00001_.flac.json")
+        rec = json.load(open(side, encoding="utf-8")) if os.path.isfile(side) else {}
+        check(rec.get("seed") == 5 and rec.get("tags") == "lo-fi, mellow" and rec.get("variant") == "aio"
+              and rec.get("steps") == 8 and rec.get("comfyui_version") == "0.44.0-stub" and rec.get("overrides") == {},
+              "sidecar records seed, caption, variant, effective steps and backend version")
 
-        # lyrics from a UTF-8 file round-trip untouched
+        # --from replays the take exactly; --reseed keeps everything but the seed
+        r = run_cli(["generate", "--from", side, "--out", out], url)
+        check(r.returncode == 0 and Stub.submitted[-1] == Stub.submitted[0], "--from rebuilds the identical graph")
+        r = run_cli(["generate", "--from", side, "--reseed", "--out", out], url)
+        check(r.returncode == 0 and Stub.submitted[-1]["14"]["inputs"]["seed"] != 5
+              and strip_seed(Stub.submitted[-1]) == strip_seed(Stub.submitted[0]), "--reseed changes only the seed")
+        g = os.path.join(tmp, "graph.json")
+        r = run_cli(["build", "--from", side, "--variant", "xl-sft", "--out", g])
+        built = json.load(open(g, encoding="utf-8")) if r.returncode == 0 else {}
+        check(built.get("14", {}).get("inputs", {}).get("steps") == 50,
+              "--from an aio take with --variant xl-sft uses xl-sft's 50 steps, not the take's 8")
+        r = run_cli(["build", "--from", side, "--steps", "12", "--out", g])
+        check(r.returncode == 0 and json.load(open(g, encoding="utf-8"))["14"]["inputs"]["steps"] == 12, "a flag overrides --from")
+        bad = os.path.join(tmp, "not a take.json")
+        with open(bad, "w", encoding="utf-8") as fh:
+            fh.write("[1, 2]")
+        r = run_cli(["build", "--from", bad])
+        check(r.returncode == 2 and "sidecar" in r.stderr, "--from a file that is not a sidecar: exit 2")
+
+        # several takes, named, never overwriting
+        r = run_cli(["generate", "--tags", "boss fight, orchestral metal", "--instrumental", "--count", "3",
+                     "--seed", "10", "--name", "Boss Theme!", "--duration", "45", "--out", out], url)
+        res = last_json(r)
+        check(r.returncode == 0 and res.get("seeds") == [10, 11, 12] and len(res.get("files", [])) == 3,
+              "--count 3 renders three takes with seeds 10, 11, 12")
+        check([s["14"]["inputs"]["seed"] for s in Stub.submitted[-3:]] == [10, 11, 12], "each take reaches the sampler with its own seed")
+        check(Stub.submitted[-1]["16"]["inputs"]["filename_prefix"] == "audio/Boss-Theme", "--name becomes a safe file prefix")
+        check(all(os.path.isfile(f + ".json") for f in res.get("files", [])), "every take has a sidecar")
+        boss = (res.get("files") or [""])[0]
+        r = run_cli(["build", "--from", boss + ".json", "--out", g])
+        check(r.returncode == 0 and json.load(open(g, encoding="utf-8"))["16"]["inputs"]["filename_prefix"] == "audio/Boss-Theme",
+              "--from keeps the take's --name")
+        check(all(os.path.isabs(f) for f in res.get("files", [])), "the result lists absolute paths")
+        Stub.fixed_name = "same_00001_.flac"
+        first = (last_json(run_cli(["generate", "--tags", "pop", "--duration", "20", "--out", out], url)).get("files") or [""])[0]
+        second = (last_json(run_cli(["generate", "--tags", "pop", "--duration", "20", "--out", out], url)).get("files") or [""])[0]
+        Stub.fixed_name = None
+        check(bool(first and second) and first != second and os.path.isfile(first) and os.path.isfile(second),
+              "a second take with the same backend file name does not overwrite the first")
+
+        # captions and lyrics from files round-trip untouched, BOM dropped
         lyr = os.path.join(tmp, "lyrics file.txt")
         text = "[Verse]\nCafé lights, 東京の夜\n[Chorus]\nla la"
         with open(lyr, "w", encoding="utf-8") as fh:
             fh.write(text)
-        r = run_cli(["generate", "--tags", "pop", "--lyrics-file", lyr, "--language", "ja", "--out", out], url)
+        cap = os.path.join(tmp, "caption.txt")
+        with open(cap, "w", encoding="utf-8-sig") as fh:
+            fh.write("city pop, warm Rhodes, female vocal")
+        r = run_cli(["generate", "--tags-file", cap, "--lyrics-file", lyr, "--language", "ja", "--out", out], url)
         check(r.returncode == 0 and Stub.submitted[-1]["11"]["inputs"]["lyrics"] == text, "lyrics file passes through byte-exact")
+        check(Stub.submitted[-1]["11"]["inputs"]["tags"] == "city pop, warm Rhodes, female vocal", "--tags-file is read, BOM dropped")
+
+        # a non-ASCII folder on a console that cannot show it
+        r = run_cli(["generate", "--tags", "pop", "--duration", "20", "--out", os.path.join(tmp, "東京 takes")], url,
+                    env={"PYTHONIOENCODING": "cp1252"})
+        check(r.returncode == 0, f"a path the console cannot encode does not crash the run ({r.stderr[-160:]})")
+
+        r = run_cli(["generate", "--tags", "pop", "--lyrics", "la " * 1500, "--out", out], url)
+        check(r.returncode == 0 and "4096" in r.stderr, "lyrics past 4096 characters warn but still render")
+
+        # backend discovery: no --url, no COMFYUI_URL
+        r = run_cli(["check"], env={"COMFY_FORGE_PROBE_PORTS": f"1,{port}"})
+        check(r.returncode == 0 and f"at {url}" in r.stdout, "the backend is found by probing ports")
+        r = run_cli(["generate", "--tags", "pop", "--out", out], env={"COMFY_FORGE_PROBE_PORTS": "1,2"})
+        check(r.returncode == 3 and "or pass --url" in r.stdout, "nothing answering: exit 3 with what to start")
+        r = run_cli(["check"], env={"COMFYUI_URL": url})
+        check(r.returncode == 0, "COMFYUI_URL is honoured")
+        r = run_cli(["check", "--variant", "all"], url)
+        check(r.returncode == 0 and "ready: aio" in r.stdout and "xl-sft: not installed" in r.stdout,
+              "check --variant all lists what is ready and what is not")
 
         Stub.visible = False
         before = len(Stub.submitted)
@@ -241,14 +345,17 @@ def test_cli():
         check(r.returncode == 0, "check passes when nodes and files are visible")
 
         r = run_cli(["generate", "--tags", "pop", "--out", out], "http://127.0.0.1:1")
-        check(r.returncode == 3, "no backend: exit 3 (unverified), not a pass")
-        r = run_cli(["generate", "--tags", "pop", "--duration", "9000", "--out", out], url)
-        check(r.returncode == 2, "duration out of range: exit 2")
-        r = run_cli(["generate", "--tags", "pop", "--key", "H sharp", "--out", out], url)
-        check(r.returncode == 2, "bad key: exit 2")
+        check(r.returncode == 3, "no backend at --url: exit 3 (unverified), not a pass")
+        for bad_args, why in ((["--duration", "9000"], "duration out of range"), (["--key", "H sharp"], "bad key"),
+                              (["--language", "xx"], "unknown language"), (["--count", "0"], "zero takes"),
+                              (["--seed", "-4"], "negative seed")):
+            before = len(Stub.submitted)
+            r = run_cli(["generate", "--tags", "pop", "--out", out] + bad_args, url)
+            check(r.returncode == 2 and len(Stub.submitted) == before, f"{why}: exit 2 before anything is sent")
         r = run_cli(["generate", "--tags", "   ", "--out", out], url)
         check(r.returncode == 2, "empty tags: exit 2")
-        g = os.path.join(tmp, "graph.json")
+        r = run_cli(["generate", "--out", out], url)
+        check(r.returncode == 2 and "--tags" in r.stderr, "no caption at all: exit 2 naming --tags")
         r = run_cli(["build", "--variant", "xl-sft", "--tags", "synthwave", "--out", g])
         check(r.returncode == 0 and json.load(open(g, encoding="utf-8"))["14"]["inputs"]["steps"] == 50, "build writes the graph offline")
     server.shutdown()
@@ -267,10 +374,29 @@ def test_graph_rules():
         check(True, "unknown variant is refused")
 
 
+def test_music_seconds():
+    """The early-stop check finds where the music ends (needs ffmpeg; skipped without it)."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("skip music_seconds: ffmpeg is not on PATH")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        early = os.path.join(tmp, "early stop.flac")
+        full = os.path.join(tmp, "full.flac")
+        subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=5", "-f", "lavfi",
+                        "-i", "anullsrc=r=48000:cl=mono", "-filter_complex", "[0][1]concat=n=2:v=0:a=1,atrim=0:9",
+                        "-y", early], check=True)
+        subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", "-y", full], check=True)
+        check(music.music_seconds(early, 9.0) == 5.0, "a take that goes silent at 5 s of 9 is reported as ending at 5 s")
+        check(music.music_seconds(full, 6.0) == 6.0, "a take with sound to the end is reported at full length")
+        check(music.music_seconds(os.path.join(tmp, "missing.flac"), 6.0) is None, "an unreadable file gives no answer, not a guess")
+
+
 def main():
     test_variants()
     test_installer_table()
     test_graph_rules()
+    test_music_seconds()
     test_cli()
     print(f"\n{'PASS' if not fail else 'FAIL'}: {fail} failure(s)")
     return 1 if fail else 0

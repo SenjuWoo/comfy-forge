@@ -108,9 +108,12 @@ Text-to-music through ComfyUI's built-in ACE-Step 1.5 support: a style descripti
 ```powershell
 powershell -File TOOLS\Install-MusicModels.ps1 -WhatIf            # exact file list and sizes first
 powershell -File TOOLS\Install-MusicModels.ps1 -Set aio            # one ~9.3 GB file
-powershell -File TOOLS\music.ps1 check --variant aio
-powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, vinyl crackle" --instrumental --duration 90
+powershell -File TOOLS\music.ps1 check                           # finds SwarmUI's or ComfyUI's port itself
+powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, vinyl crackle" --instrumental --duration 90 --count 3
+powershell -File TOOLS\music.ps1 generate --from out\music\comfy-forge_00002.flac.json --duration 150   # same take, longer
 ```
+
+Every take is saved with a `.json` sidecar (caption, lyrics, seed, settings); `--from` renders it again sample for sample, and a take that goes silent before the end is flagged.
 
 Graph, templates and installer are tested against each other without a GPU, and `python TESTS/integration_music.py` renders and decodes a real song (verified with `aio` on an RTX 4080 SUPER: 30 s of audio in about 9.5 s). Cover, repaint and extend are not part of ComfyUI's native support and are not offered. Details, prompts and limits: **[docs/MUSIC.md](docs/MUSIC.md)**.
 
