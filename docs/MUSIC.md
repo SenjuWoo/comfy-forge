@@ -20,6 +20,8 @@ powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, 
   --instrumental --duration 90 --bpm 82 --key "A minor"
 ```
 
+A download connection that stays under 5 MB/s for 30 s is dropped and resumed on a new one (up to five times, then one last try with no floor so a slow line still finishes); `-MinSpeedMB`, `-SlowSeconds` and `-Reconnects` change that, `-MinSpeedMB 0` turns it off.
+
 The file lands in `out\music\`. The seed is printed; pass `--seed N` to reproduce a take.
 `image-stack.ps1 status` ends with a `music` line that lists the variants whose files are on disk.
 
@@ -86,3 +88,4 @@ contacting anything, for an agent or script that submits it itself.
 | a real backend renders audible music, `aio` | `TESTS/integration_music.py` on an RTX 4080 SUPER, ComfyUI 0.44.0: 30.0 s FLAC at 48 kHz, RMS 0.170, peak 0.992, about 9.5 s end to end; a 75 s vocal take rendered in about 6 s |
 | the other five variants render | **not run**: their weights are not installed here |
 | download integrity | each file's byte length is checked against the published size; upstream publishes no checksums |
+| a stuck download recovers | `TESTS/test_music_install.py`: a stub server trickles the first connection; the installer drops it after `-SlowSeconds`, resumes from the partial file on a new connection and finishes at the exact size. A short file is deleted, an HTTP error stops at once |

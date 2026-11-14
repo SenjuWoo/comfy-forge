@@ -16,6 +16,10 @@ optional lyrics in, an audio file out.
 - `TOOLS/Install-MusicModels.ps1` fetches the weights on request (`-WhatIf` lists them first). Every
   file is checked against its published byte size before it is moved into place, and an existing file
   that does not match is left alone.
+- A download connection that stays under 5 MB/s for 30 s is dropped and resumed on a new one, up to
+  five times, then one last try with no speed floor (`-MinSpeedMB`, `-SlowSeconds`, `-Reconnects`).
+  Retries no longer use curl's `--retry`, which restarted a file at byte 0. `TESTS/test_music_install.py`
+  proves it against a stub server that trickles the first connection.
 - `image-stack.ps1 status` ends with a `music` line listing the variants whose files are installed.
 - `TESTS/test_music.py` compares the generator with each shipped template (wiring, sampler,
   shift, loader files, encoder defaults) and the installer table with the model URLs inside the

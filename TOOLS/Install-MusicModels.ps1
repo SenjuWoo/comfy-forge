@@ -12,6 +12,11 @@
 # no checksums, so a size match proves the download finished, not that the bytes
 # are the author's. Downloads use curl with -C -, so a partial file resumes.
 #
+# A CDN connection can get stuck far below the line speed. One that stays under
+# -MinSpeedMB (default 5) for -SlowSeconds (default 30) is dropped and the download
+# resumes on a new connection, up to -Reconnects (default 5) times; the last try has
+# no floor, so a slow line still finishes. -MinSpeedMB 0 turns this off.
+#
 # Sets (cumulative files are shared, never downloaded twice):
 #   aio       checkpoints/ace_step_1.5_turbo_aio.safetensors
 #   turbo     turbo diffusion model + qwen 0.6B + qwen 1.7B + VAE
@@ -29,13 +34,21 @@ param(
     # Explicit SwarmUI root; its dlbackend\comfy\ComfyUI is used.
     [string]$SwarmRoot,
     [switch]$WhatIf,
-    [switch]$Force
+    [switch]$Force,
+    # Reconnect when a connection stays below this many MB/s for -SlowSeconds (0 = never).
+    [double]$MinSpeedMB = 5,
+    # How many times to reconnect before the final attempt, which has no floor.
+    [int]$Reconnects = 5,
+    # How long a connection may stay under -MinSpeedMB before it is dropped.
+    [int]$SlowSeconds = 30,
+    # Download source; a mirror with the same layout works. Tests point it at a local stub.
+    [string]$BaseUrl = 'https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main'
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$HF = 'https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main'
+$HF = $BaseUrl.TrimEnd('/')
 # name = destination under models/ ; value = repo path and published size in bytes
 $catalog = [ordered]@{
     'aio.ckpt'      = @{ Rel = 'checkpoints\ace_step_1.5_turbo_aio.safetensors';           Repo = 'checkpoints/ace_step_1.5_turbo_aio.safetensors';                       Bytes = 10025478736 }
@@ -121,8 +134,40 @@ foreach ($k in $wanted) {
     New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
     $tmp = "$dest.part"
     Write-Host ("get   {0} ({1:n2} GB)" -f $item.Rel, ($item.Bytes / 1GB))
-    & curl.exe -L -C - --fail --retry 3 --retry-delay 5 -o $tmp "$HF/$($item.Repo)"
-    if ($LASTEXITCODE -ne 0) { throw "download failed for $($item.Rel) (exit $LASTEXITCODE) - re-run to resume" }
+    # A CDN connection can settle at a small fraction of the line speed and stay
+    # there for the whole file (seen: 1.9 MB/s on a link a fresh connection ran at
+    # 64 MB/s). Drop a connection that stays under -MinSpeedMB for -SlowSeconds and resume on
+    # a new one. The last attempt has no floor, so a genuinely slow line still finishes.
+    #
+    # Retries live here, not in curl's --retry: curl's own retry restarts the file at
+    # byte 0 (measured with a stub server), throwing away what was downloaded. A new
+    # curl with -C - recomputes the offset from the .part file every time.
+    $slowLeft = $Reconnects
+    $netLeft = 3
+    $code = 1
+    while ($true) {
+        if ((Test-Path -LiteralPath $tmp) -and (Get-Item -LiteralPath $tmp).Length -eq $item.Bytes) { $code = 0; break }
+        $floor = @()
+        if ($slowLeft -gt 0 -and $MinSpeedMB -gt 0) { $floor = @('--speed-limit', [string]([int]($MinSpeedMB * 1MB)), '--speed-time', [string]$SlowSeconds) }
+        & curl.exe -L -C - --fail @floor -o $tmp "$HF/$($item.Repo)"
+        $code = $LASTEXITCODE
+        if ($code -eq 0) { break }
+        if ($code -eq 28 -and $floor.Count) {
+            # The speed floor tripped: drop this connection and resume on a new one.
+            $slowLeft--
+            Write-Host ("      slow connection (under {0} MB/s for {1} s), reconnecting; {2} left" -f $MinSpeedMB, $SlowSeconds, $slowLeft)
+            continue
+        }
+        # Network hiccups (resolve, connect, TLS, reset, empty reply): wait and resume.
+        if (@(6, 7, 18, 28, 35, 52, 55, 56, 92) -contains $code -and $netLeft -gt 0) {
+            $netLeft--
+            Write-Host ("      network error (curl exit {0}), resuming in 5 s; {1} left" -f $code, $netLeft)
+            Start-Sleep -Seconds 5
+            continue
+        }
+        break   # an HTTP error (22) or anything else is a real failure
+    }
+    if ($code -ne 0) { throw "download failed for $($item.Rel) (exit $code) - re-run to resume" }
     $got = (Get-Item -LiteralPath $tmp).Length
     if ($got -ne $item.Bytes) {
         Remove-Item -LiteralPath $tmp -Force

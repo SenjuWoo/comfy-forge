@@ -59,6 +59,7 @@ Run-Check 'deps resolver'     $py @('TOOLS\check_deps.py', '--self-test')
 Run-Check 'workflow structure' $py @('TESTS\validate_workflows.py') 3
 Run-Check '3d generation lock' $py @('TESTS\test_3d_generation.py')
 Run-Check 'music (ACE-Step)'   $py @('TESTS\test_music.py')
+Run-Check 'music installer'    $py @('TESTS\test_music_install.py')
 Run-Check 'workflow convert'  $py @('TESTS\test_workflow_convert.py')
 Run-Check 'dataset captions'  $py @('TESTS\test_dataset_prep.py')
 Run-Check 'dataset pipeline'  $py @('TESTS\test_dataset_pipeline.py')
