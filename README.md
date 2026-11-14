@@ -101,6 +101,19 @@ powershell -File TOOLS\Install-3DModels.ps1 -Set pixal3d
 
 **Status:** verified on this machine (2026-11-12, RTX 4080 SUPER) — all three templates were run end-to-end (Idol ≈3.5 min; Pixal3D single ≈4 min; multi-view ≈4.5 min) and produced expected outputs. Wall details: panel sizes, tri counts, file sizes in [docs/3D-MODELS.md](docs/3D-MODELS.md#verified-on-this-machine-rtx-4080-super-2026-11-12).
 
+## Music: ACE-Step 1.5
+
+Text-to-music through ComfyUI's built-in ACE-Step 1.5 support: a style description and optional lyrics in, a FLAC or MP3 out. Six variants (all-in-one turbo, split turbo, XL turbo/SFT/base) ship as the stock Comfy-Org templates in `presets/music/`, and `TOOLS/music.py` builds the same graph from the command line.
+
+```powershell
+powershell -File TOOLS\Install-MusicModels.ps1 -WhatIf            # exact file list and sizes first
+powershell -File TOOLS\Install-MusicModels.ps1 -Set aio            # one ~9.3 GB file
+powershell -File TOOLS\music.ps1 check --variant aio
+powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, vinyl crackle" --instrumental --duration 90
+```
+
+Graph, templates and installer are tested against each other without a GPU, and `python TESTS/integration_music.py` renders and decodes a real song (verified with `aio` on an RTX 4080 SUPER: 30 s of audio in about 9.5 s). Cover, repaint and extend are not part of ComfyUI's native support and are not offered. Details, prompts and limits: **[docs/MUSIC.md](docs/MUSIC.md)**.
+
 ## Working with AssetForge
 
 comfy-forge renders; [AssetForge](https://github.com/SenjuWoo/AssetForge) turns the result into a validated, engine-exportable game asset. AssetForge delegates its `comfy-generate` recipe to this repo, so the two are designed to sit side by side — AssetForge is a separate install and nothing about it lives in here.
@@ -113,6 +126,7 @@ Install comfy-forge first (`install`, then `launch-windows.bat` for SwarmUI), th
 |---|---|
 | **42 presets** | Anima, FLUX.1/2, Krea 2, SDXL, Z-Image — shot parameters only, no workflow graph |
 | **3 image→3D templates** | `presets/3d/` — Idol (fine-tuned TripoSplat, Apache-2.0) and Pixal3D single-image/multi-view (MIT), plus `TOOLS/Install-3DModels.ps1` to download the weights |
+| **6 music templates** | `presets/music/` — ACE-Step 1.5 (turbo, XL turbo/SFT/base), `TOOLS/music.py` to render, `TOOLS/Install-MusicModels.ps1` to download the weights (Apache-2.0 per the model card) |
 | **Anima installer** | 2.9B bf16 + Qwen3 0.6B encoder + Qwen Image VAE, pinned by hash |
 | **Merge tool** | Task arithmetic over up to four checkpoints, streamed write, provenance in metadata |
 | **ComfyUI graph** | `workflows/anima-4way-merge.json` for the node editor (`install` fetches the node pack) |
@@ -232,10 +246,13 @@ TOOLS/image-stack.ps1            the CLI
 TOOLS/merge_anima.py             the merge engine
 TOOLS/Ensure-AnimaSwarmUI.ps1    model download and verification
 TOOLS/Install-3DModels.ps1       downloads the Idol/Pixal3D 3D weights (opt-in)
+TOOLS/music.py, music.ps1        ACE-Step 1.5 song generation through ComfyUI
+TOOLS/Install-MusicModels.ps1    downloads the ACE-Step 1.5 weights, size-verified (opt-in)
 presets/                         42 presets, hash-pinned manifest
 presets/3d/                      3D templates (Idol, Pixal3D) — MIT, from Comfy-Org workflow templates
+presets/music/                   ACE-Step 1.5 templates (turbo, XL) — MIT, from Comfy-Org workflow templates
 workflows/                       ComfyUI 4-way merge graph
-docs/                            DATASET.md, MERGE.md, ASSETFORGE.md, 3D-MODELS.md, GAME-READY.md, PRODUCTION-WORKFLOWS.md, banner, sample render
+docs/                            DATASET.md, MERGE.md, MUSIC.md, ASSETFORGE.md, 3D-MODELS.md, GAME-READY.md, PRODUCTION-WORKFLOWS.md, banner, sample render
 TESTS/                           merge math, installer gate, PS parse, MCP handshake
 ```
 

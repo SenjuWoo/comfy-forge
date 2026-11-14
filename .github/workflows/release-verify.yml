@@ -46,6 +46,12 @@ jobs:
       - name: 3D generation lock
         run: python TESTS/test_3d_generation.py
 
+      - name: Music (ACE-Step 1.5) generator vs templates vs installer, stub backend
+        run: python TESTS/test_music.py
+
+      - name: Music installer (stuck-connection reconnect, resume, size check)
+        run: python TESTS/test_music_install.py
+
       - name: Model install safety (includes real HTTP resume)
         shell: pwsh
         run: ./TESTS/Test-ModelInstall.ps1

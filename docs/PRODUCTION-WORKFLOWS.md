@@ -10,9 +10,10 @@ reason; using the wrong one for a job means fighting the workflow. This is the d
 | outputs | game-ready files with QA evidence (reports, review sheets) | images, captions, datasets, raw `.glb`/`.spz` |
 | failure mode | a job fails loudly with exit code 5, never silently ships | model output quality varies per prompt/seed; review is on you |
 | best for | repetition, consistency, budgets, exports | novelty, speed, concept → first draft |
+| audio | voice lines and sound effects (`audio-voice`, `audio-sfx`), finishing and engine export (`audio-process`, `export --target minecraft`) | music: songs and instrumentals (`TOOLS\music.ps1`, ACE-Step 1.5) |
 
-AssetForge deliberately does **not** call generative models except through comfy-forge
-(`comfy-generate`, `comfy-import`). It evaluates every result it produces: `blender-asset-qa`
+AssetForge deliberately does **not** call image or 3D generative models except through comfy-forge
+(`comfy-generate`, `comfy-import`); its own generative step is audio (voice lines and sound effects). It evaluates every result it produces: `blender-asset-qa`
 fails a job on any error (warnings must be justified in writing), the Khronos glTF
 Validator result is recorded in provenance, and QA review sheets are written even on
 failure. That is the "more finetuned, less AI sloppy" path — for assets you ship
@@ -48,6 +49,10 @@ for a consistent character mesh.
 **Exploring looks fast (concept art, moodboards, Anima renders, LoRA-ready captions)**
 → **comfy-forge**. Not AssetForge's job; nothing deterministic about art direction.
 
+**A song or an instrumental from a text prompt** -> **comfy-forge** (`TOOLS\music.ps1`, ACE-Step 1.5 --
+see [MUSIC.md](MUSIC.md)). Generative, so takes vary per seed; keep the seed. Sound effects, trimming,
+loudness and packaging for a game are AssetForge's audio recipes, not this.
+
 **Maximum-batch, repetitive export flows** (e.g. 40 prop variants off one preset)
 → **AssetForge**. A deterministic pipeline is the only sane way to batch; generative
 pipelines drift per seed.
@@ -72,6 +77,7 @@ word before the engine; comfy-forge is the first word after "I want".
 ## See also
 
 - [ASSETFORGE.md](ASSETFORGE.md) — setting AssetForge up next to this repo
+- [MUSIC.md](MUSIC.md) -- ACE-Step 1.5 text-to-music, variants, prompts and limits
 - [3D-MODELS.md](3D-MODELS.md) — Idol / Pixal3D / single vs multi-view, verified on this machine
 - AssetForge docs: `docs/RECIPES.md`, `docs/PROVIDERS.md`, `docs/UABS-INTEGRATION.md`
   (read in the AssetForge folder, or on its public repo)

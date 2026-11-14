@@ -17,6 +17,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-Mirror.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-ModelInstall.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-Version.ps1
 python TESTS\test_merge.py
+python TESTS\test_music.py
 python TESTS\validate_workflows.py
 python TESTS\validate_workflows.py --self-test
 python TESTS\test_mcp_handshake.py
