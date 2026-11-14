@@ -112,7 +112,7 @@ powershell -File TOOLS\music.ps1 check --variant aio
 powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, vinyl crackle" --instrumental --duration 90
 ```
 
-Graph, templates and installer are tested against each other without a GPU; a real render needs the weights (`python TESTS/integration_music.py`). Cover, repaint and extend are not part of ComfyUI's native support and are not offered. Details, prompts and limits: **[docs/MUSIC.md](docs/MUSIC.md)**.
+Graph, templates and installer are tested against each other without a GPU, and `python TESTS/integration_music.py` renders and decodes a real song (verified with `aio` on an RTX 4080 SUPER: 30 s of audio in about 9.5 s). Cover, repaint and extend are not part of ComfyUI's native support and are not offered. Details, prompts and limits: **[docs/MUSIC.md](docs/MUSIC.md)**.
 
 ## Working with AssetForge
 

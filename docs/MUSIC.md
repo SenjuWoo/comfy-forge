@@ -83,5 +83,6 @@ contacting anything, for an agent or script that submits it itself.
 | the installer's URLs and file list equal what the templates ask for | `TESTS/test_music.py` |
 | ComfyUI 0.44.0 accepts the graph's node classes and every widget value, for all six variants and all three save formats; it rejected only the model files that are not installed, and it rejected a bad key and a bad `format.quality` | graphs submitted to a headless ComfyUI 0.44.0 and read back from `/prompt` |
 | `generate`, `check` and the refusal paths (no backend, file missing, bad arguments) | `TESTS/test_music.py` drives real processes against a stub backend |
-| **a real backend renders audible music** | **not run**: needs the weights. `python TESTS/integration_music.py` does it and decodes the result |
+| a real backend renders audible music, `aio` | `TESTS/integration_music.py` on an RTX 4080 SUPER, ComfyUI 0.44.0: 30.0 s FLAC at 48 kHz, RMS 0.170, peak 0.992, about 9.5 s end to end; a 75 s vocal take rendered in about 6 s |
+| the other five variants render | **not run**: their weights are not installed here |
 | download integrity | each file's byte length is checked against the published size; upstream publishes no checksums |

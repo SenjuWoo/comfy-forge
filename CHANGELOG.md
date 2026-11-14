@@ -24,8 +24,9 @@ optional lyrics in, an audio file out.
 - Checked against ComfyUI 0.44.0: every variant and save format was submitted to a headless backend,
   which accepted every node and widget value and refused only the weights that are not installed.
 - Not in this release: cover, repaint and extend (not part of ComfyUI's native support), reference-audio
-  timbre, and the Gemini-assisted template. A real render has not been run here; the weights are an
-  opt-in download.
+  timbre, and the Gemini-assisted template.
+- Live render: `aio` on an RTX 4080 SUPER produced a 30 s, 48 kHz FLAC with real signal in about
+  9.5 s (`TESTS/integration_music.py`). The other five variants have not been rendered.
 
 ## v0.7.0 - Tagged folder in, verified upload archive out
 
