@@ -1,5 +1,69 @@
 # Changelog
 
+## v0.10.0 - audit: fixes for broken and untrue behaviour
+
+A full audit of the tools, tests, gates and docs. Every fix below was reproduced
+first and has a test that failed before it and passes now.
+
+**Broken**
+- `image-stack.ps1 mcp -Write` damaged the agent config it edited: non-ASCII text
+  came back as mojibake, anything nested deeper than 12 levels was replaced by a
+  string, a BOM was added, and no backup was kept. It now goes through
+  `TOOLS/mcp_config.py`: the rest of the file is kept as it was (text, nesting, key
+  order, BOM or not), the old file is saved as `<file>.bak-<time>`, the new one is
+  written to a temporary name and renamed, an identical entry changes nothing, and
+  a file that is not a JSON object is refused untouched. (`TESTS/test_mcp_config.py`)
+- `Install-3DModels.ps1 -WhatIf` crashed with "Cannot find drive" on any machine
+  without a `D:` drive; `Install-MusicModels.ps1` did too when no install record
+  existed. Both now use one resolver (`TOOLS/comfy-root-lib.ps1`) whose probes never
+  throw, and the 3D installer now finds the SwarmUI the install record names.
+  (`TESTS/test_installers.py`)
+- Dataset: `--exclude` only filtered tagger predictions, so `--exclude watermark`
+  kept `watermark` in every existing caption - the case `inspect` recommends it for.
+  It now filters every caption, matches an artist tag by name, and notes each
+  removal in `_review.tsv`.
+- Dataset: a caption saved as UTF-16 (Windows PowerShell 5.1's `>`) was exported as
+  NUL-separated letters with status `ok`. UTF-16 with or without a BOM is now read
+  as text.
+- Dataset: rebuilding after a source image was removed left the old pair in the
+  output, and `validate` failed the folder the tool had just written. Such pairs
+  (and ones now left out as duplicate or too small) are removed while they still
+  hold what the tool wrote; a hand-edited file is kept and reported; a failed
+  regeneration keeps the previous pair. (`TESTS/test_dataset_regressions.py`)
+- Music: `--from` did not replay `--no-audio-codes` or the `--lm-*` values the
+  sidecar recorded, so a "sample for sample" replay could be a different song.
+- `merge -Weights 0.85,0.75` failed to bind when called from a PowerShell prompt.
+  `-Donors "name.safetensors"` (the README example) now resolves a bare name in the
+  model folders; a name matching two files is refused with both paths.
+- The merge engine's stderr could become a terminating error under
+  `ErrorActionPreference=Stop`, skipping the exit-3 fallback-anchor retry.
+
+**Untrue**
+- The installer wrote a `PRESETS-IMPORT.md` into SwarmUI saying RES4LYF names are
+  not used; three shipped presets use them.
+- Docs: two commands whose backslash escapes had become control bytes
+  (`TESTING.md`, `UPDATING.md`), MERGE's sample output from the old dropped-anchor
+  run, DATASET contradicting itself on style filtering and near duplicates, the
+  presets README (39 presets, "RES4LYF cannot be used"), the handoff's state path
+  and staging, and the AssetForge page (`COMFY_FORGE_ROOT`, the `audio-music` recipe
+  that was verified, an `image-stack.ps1 --json` that does not exist).
+- `release-verify` said it ran the same checks as CI and ran a subset; it now runs
+  every offline check. `preflight.ps1` lacked the node-pack compat scan.
+
+**Fragile / slow**
+- `status` took 63 s and `music.py check` 28 s with no backend running: 14 ports
+  asked one by one, ~2 s each on Windows. Ports are now asked in parallel
+  (5 s and 0.7 s measured).
+- File identity never read the volume serial (`fsutil fsinfo volumeinfo` was given
+  `Z:\:`, and needs elevation anyway); it now reads it from WMI.
+- 3D downloads used `curl --retry`, which restarts at byte 0; retries now resume
+  with `-C -`. `-Force` (declared, never used) now replaces a file and keeps the old
+  one as `.replaced-*`.
+- The PowerShell parse gate covered 4 files; it now covers every `.ps1`.
+
+Not changed: formats, flags, file names, the music closing JSON line Asset Forge
+reads, presets, workflows, locks.
+
 ## v0.9.1 - fix: RES4LYF 1.2.1 broke every generation on ComfyUI 0.45
 
 **Symptom (reported by the operator):** every SwarmUI generation failed with
