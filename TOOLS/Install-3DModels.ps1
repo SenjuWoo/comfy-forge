@@ -69,23 +69,9 @@ foreach ($key in @($selected.Keys)) {
     if ($seen.ContainsKey($selected[$key])) { $selected.Remove($key) } else { $seen[$selected[$key]] = $true }
 }
 
-function Resolve-ComfyRoot {
-    if ($ComfyRoot -and (Test-Path -LiteralPath $ComfyRoot)) { return (Resolve-Path -LiteralPath $ComfyRoot).Path }
-    $swarm = if ($SwarmRoot) { $SwarmRoot } elseif ($env:SWARMUI_ROOT) { $env:SWARMUI_ROOT } else { $null }
-    if ($swarm) {
-        $cand = Join-Path $swarm 'dlbackend\comfy\ComfyUI'
-        if (Test-Path -LiteralPath (Join-Path $cand 'models')) { return $cand }
-    }
-    if ($env:COMFYUI_ROOT -and (Test-Path -LiteralPath $env:COMFYUI_ROOT)) { return $env:COMFYUI_ROOT }
-    foreach ($c in @((Join-Path $HOME 'ComfyUI'), (Join-Path $HOME 'Documents\ComfyUI'), 'C:\ComfyUI',
-                     (Join-Path $HOME 'ComfyUI_windows_portable\ComfyUI'), 'C:\ComfyUI_windows_portable\ComfyUI',
-                     'D:\ComfyUI')) {
-        if (Test-Path -LiteralPath (Join-Path $c 'models')) { return $c }
-    }
-    return $null
-}
+. (Join-Path $PSScriptRoot 'comfy-root-lib.ps1')
 
-$root = Resolve-ComfyRoot
+$root = Resolve-ComfyModelsRoot $ComfyRoot $SwarmRoot
 if (-not $root) {
     Write-Host 'Could not locate a ComfyUI root with a models/ directory.' -ForegroundColor Red
     Write-Host 'Pass -ComfyRoot <path> (standalone install) or -SwarmRoot <path> (SwarmUI install).'
@@ -97,21 +83,40 @@ Write-Host ''
 foreach ($key in $selected.Keys) {
     $rel = $key.Split(':', 2)[1]
     $dest = Join-Path $root (Join-Path 'models' $rel)
-    if (Test-Path -LiteralPath $dest) {
+    if ((Test-Path -LiteralPath $dest) -and -not $Force) {
         $have = (Get-Item -LiteralPath $dest).Length
         Write-Host ("have {0} ({1:n0} bytes)" -f $rel, $have)
         continue
     }
     if ($WhatIf) {
-        Write-Host ("would get {0}" -f $rel)
+        Write-Host ("would get {0}{1}" -f $rel, $(if (Test-Path -LiteralPath $dest) { ' (replacing the file there, -Force)' } else { '' }))
         continue
     }
     $dir = Split-Path $dest -Parent
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $tmp = "$dest.part"
     Write-Host "get  $rel"
-    & curl.exe -L -C - --fail --retry 3 --retry-delay 5 -o $tmp $selected[$key]
-    if ($LASTEXITCODE -ne 0) { throw "download failed for $rel (exit $LASTEXITCODE) - re-run to resume" }
+    # Retries live here, not in curl's --retry, which restarts the file at byte 0
+    # (measured for the music installer). A new curl with -C - resumes from .part.
+    $netLeft = 3
+    while ($true) {
+        & curl.exe -L -C - --fail -o $tmp $selected[$key]
+        $code = $LASTEXITCODE
+        if ($code -eq 0) { break }
+        if (@(6, 7, 18, 28, 35, 52, 55, 56, 92) -contains $code -and $netLeft -gt 0) {
+            $netLeft--
+            Write-Host ("      network error (curl exit {0}), resuming in 5 s; {1} left" -f $code, $netLeft)
+            Start-Sleep -Seconds 5
+            continue
+        }
+        throw "download failed for $rel (exit $code) - re-run to resume"
+    }
+    if (Test-Path -LiteralPath $dest) {
+        # -Force: never destroy a file without keeping it.
+        $backup = "$dest.replaced-$(Get-Date -Format yyyyMMddHHmmss)"
+        Move-Item -LiteralPath $dest -Destination $backup
+        Write-Host "      kept the previous file as $backup"
+    }
     Move-Item -LiteralPath $tmp -Destination $dest -Force
     Write-Host ("  ok {0} ({1:n0} bytes)" -f $rel, (Get-Item -LiteralPath $dest).Length)
 }

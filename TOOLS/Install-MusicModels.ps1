@@ -72,42 +72,12 @@ $sets = @{
 }
 $wanted = @($sets[$Set] | Select-Object -Unique)
 
-function Resolve-ComfyRoot {
-    if ($ComfyRoot) {
-        if (Test-Path -LiteralPath (Join-Path $ComfyRoot 'models')) { return (Resolve-Path -LiteralPath $ComfyRoot).Path }
-        return $null
-    }
-    $swarm = $SwarmRoot
-    if (-not $swarm) {
-        # The CLI's install record names the SwarmUI this stack uses.
-        foreach ($state in @((Join-Path $env:LOCALAPPDATA 'comfy-kit\anima-swarmui.json'),
-                             (Join-Path $env:LOCALAPPDATA 'Ultimate-AI-Starter-Bundle\anima-swarmui.json'))) {
-            if (-not (Test-Path -LiteralPath $state)) { continue }
-            try {
-                foreach ($f in @((Get-Content -LiteralPath $state -Raw | ConvertFrom-Json).frontends)) {
-                    if ($f.kind -eq 'SwarmUI' -and $f.root -and (Test-Path -LiteralPath $f.root)) { $swarm = $f.root; break }
-                }
-            } catch { }
-            if ($swarm) { break }
-        }
-    }
-    if (-not $swarm -and $env:SWARMUI_ROOT) { $swarm = $env:SWARMUI_ROOT }
-    if ($swarm) {
-        $cand = Join-Path $swarm 'dlbackend\comfy\ComfyUI'
-        if (Test-Path -LiteralPath (Join-Path $cand 'models')) { return $cand }
-    }
-    if ($env:COMFYUI_ROOT -and (Test-Path -LiteralPath (Join-Path $env:COMFYUI_ROOT 'models'))) { return $env:COMFYUI_ROOT }
-    foreach ($c in @((Join-Path $HOME 'ComfyUI'), (Join-Path $HOME 'Documents\ComfyUI'), 'C:\ComfyUI',
-                     'C:\ComfyUI_windows_portable\ComfyUI', 'D:\ComfyUI')) {
-        if (Test-Path -LiteralPath (Join-Path $c 'models')) { return $c }
-    }
-    return $null
-}
+. (Join-Path $PSScriptRoot 'comfy-root-lib.ps1')
 
 $total = 0L
 foreach ($k in $wanted) { $total += $catalog[$k].Bytes }
 
-$root = Resolve-ComfyRoot
+$root = Resolve-ComfyModelsRoot $ComfyRoot $SwarmRoot
 if (-not $root) {
     Write-Host 'error  Could not locate a ComfyUI root with a models/ directory.' -ForegroundColor Red
     Write-Host '       Pass -ComfyRoot <path> (standalone) or -SwarmRoot <path> (SwarmUI install).'
