@@ -43,13 +43,9 @@ heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and t
 
 **Next**
 
-- Release 0.10.0: PR SenjuWoo/comfy-forge#43 (branch `audit-0.10.0`) is open. After
-  its `test` check is green: merge, wait for `ci` on main's merge SHA, tag `v0.10.0`
-  on that SHA, let `release-verify` pass, publish the release, then rerun
-  `TOOLS/preflight.ps1` and `image-stack.ps1 status` from the merged tree.
-- A live backend session to clear the one UNVERIFIED preflight check (MCP
-  surface) and to run `integration_live.py`, `integration_music.py` and
-  `test_mcp_handshake.py --workflow` against 0.10.0.
+- Release 0.10.0: audit merged as #43 (`30975e6`, ci green). The MCP `--checkpoint`
+  follow-up lands as its own PR; tag `v0.10.0` on that merge SHA once `ci` is green,
+  let `release-verify` pass, publish, rerun preflight on main with a backend up.
 - `image-stack.ps1 install` on a clean machine (standalone ComfyUI included).
 - Leftover, deliberately not touched: an unreachable `if ($LASTEXITCODE -eq 0)` /
   `else` pair in `Install-MissingRequirements` after the clone-failure `continue`
@@ -67,8 +63,9 @@ PowerShell 7 beyond CI is also unverified; local checks run on 5.1.
   binds in-session, bare checkpoint names resolve; `status` 63 s -> 5 s and
   `music.py check` 28 s -> 0.7 s with no backend; mirror reads the volume serial;
   gates widened (parse gate 4 -> 21 files, release-verify = all offline CI checks).
-  Verified locally by running every suite (see CHANGELOG); no backend was running,
-  so nothing was rendered for this release.
+  Verified by every local suite, and live on SwarmUI's bundled ComfyUI 0.45.0
+  started headless: image render, MCP workflow render, music render and a
+  sample-identical `--from` replay of a take with non-default planning settings.
 - v0.9.0: music takes. Backend discovery (COMFYUI_URL, 8188, 7820-7832), `--count`, `--name`, `.json` sidecar per take, `--from`/`--reseed` replay, early-silence warning, `--tags-file`, `check --variant all`, language and lyric-length checks, no overwrite, console-encoding safety. Verified: `TESTS/test_music.py` (108 checks, stub backend); live through SwarmUI 0.9.8.4's backend with no `--url`: `integration_music.py` PASS (30 s, RMS 0.170, same seed twice gives identical samples), `--count 2`, `--from` replay bit-identical, MP3, a 40 s take that went silent at 34.1 s flagged; Asset Forge `audio-music` run end to end against the real tool. Not run: the five non-aio variants (weights not installed).
 - v0.8.0: ACE-Step 1.5 music. `TOOLS/music.py` (+ `music.ps1`) generates through ComfyUI's native nodes; six variants in `presets/music/` (upstream Comfy-Org templates, MIT); `TOOLS/Install-MusicModels.ps1` size-verifies the weights; `status` reports ready variants. Verified: `TESTS/test_music.py` (generator vs templates vs installer, stub-backend CLI runs); all six graphs x flac/mp3/opus accepted by a headless ComfyUI 0.44.0 except for the uninstalled model files; a bad key and a bad `format.quality` were rejected. Live render verified 2026-11-13 on the RTX 4080 SUPER, ComfyUI 0.44.0: `aio` weights installed (10,025,478,736 bytes, size-checked), `integration_music.py --variant aio --seconds 30` PASS (30.0 s FLAC at 48 kHz, RMS 0.170, peak 0.992, ~9.5 s wall), plus a 75 s vocal take (seed 777) in about 6 s. Installer: a connection stuck under 5 MB/s for 30 s is dropped and resumed (`TESTS/test_music_install.py`, stub server); retries moved out of curl's `--retry`, which restarted files at byte 0. Not rendered: `turbo`, `turbo-4b` and the three XL variants (weights not installed); `--instrumental` was rendered, but whether `[Instrumental]` suppresses vocals was not judged by ear.
 - v0.7.0: dataset pipeline end to end. `anima_dataset.py inspect` (read-only folder report with exact and near duplicates, sizes, tag statistics, next command), `validate` (folder or archive), booru prefix handling (`artist:` to `@name`, `rating:` to a safety tag), post-bookkeeping tags dropped and listed, Anima section order, duplicate and `--min-side` filtering, flat upload archive, `--json`. `TESTS/test_dataset_pipeline.py` drives real processes through a folder named with a space, `!`, parentheses and a non-ASCII letter. Not run: an actual upload, and the tagger path on a real collection in this release.

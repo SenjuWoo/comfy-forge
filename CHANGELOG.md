@@ -64,6 +64,19 @@ first and has a test that failed before it and passes now.
   installed unless `SWARMUI_ROOT` was set; it now reads the install record (here:
   4 packs scanned, PASS).
 
+- `TESTS/test_mcp_handshake.py --workflow` was hardwired to `woomixAnima_v175` and
+  reported UNVERIFIED on a machine with a different model; `--checkpoint NAME`
+  picks another (the default is unchanged).
+
+**Verified live** (RTX 4080 SUPER, SwarmUI's bundled ComfyUI 0.45.0, headless):
+- `integration_live.py --checkpoint woomixAnima_v180`: PASS, 512x512, mean 121.2, beta57.
+- `test_mcp_handshake.py`: PASS (real backend operation); with `--workflow
+  --checkpoint woomixAnima_v180`: PASS, image rendered through the MCP tool.
+- `integration_music.py` (aio, 30 s): PASS, same seed twice gives identical samples.
+- `music.py generate --no-audio-codes --lm-temperature 1.1`, then `--from` its
+  sidecar: decoded audio identical (PCM md5 `d073bf43e49d` both); the same take
+  with default planning settings, which is what 0.9.x replayed, differs.
+
 Not changed: formats, flags, file names, the music closing JSON line Asset Forge
 reads, presets, workflows, locks.
 
