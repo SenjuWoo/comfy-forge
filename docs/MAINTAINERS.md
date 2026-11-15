@@ -12,6 +12,8 @@ not fit one of these, it probably belongs in none of them.
 | Model install transaction (stage → verify → publish → rollback) | `TOOLS/model-install-lib.ps1` |
 | Merge math, tensor roles, writer | `TOOLS/merge_anima.py` |
 | Mirroring into ComfyUI by file identity | `TOOLS/mirror-lib.ps1` |
+| Writing the MCP entry into an agent's JSON config | `TOOLS/mcp_config.py` |
+| ComfyUI `models/` root for the 3D and music installers | `TOOLS/comfy-root-lib.ps1` |
 | Dependency resolution (`requirements.txt` + `pyproject.toml`) | `TOOLS/check_deps.py` |
 | Pinned third-party revisions | `config/dependencies.lock.json` |
 | Lock validation | `TOOLS/validate-lock.py` |
@@ -41,6 +43,11 @@ fails otherwise.
    could not run, and CI turns it into a warning rather than a green tick.
 7. **The installer must not depend on helpers that may not exist.** The fallback
    path defines only `Write-UabsStep/Ok/Info/Warn/Bad`.
+8. **A user's config file is never round-tripped through PowerShell 5.1's JSON
+   cmdlets.** They read UTF-8 as ANSI and flatten anything nested past their
+   depth limit. `mcp -Write` goes through `mcp_config.py`, which keeps a backup.
+9. **A path probe never throws.** `Join-Path D:\ComfyUI` raises on a machine with
+   no D: drive; candidate roots go through `Test-ComfyModelsRoot`.
 
 ## Full checkpoint vs diffusion-only
 

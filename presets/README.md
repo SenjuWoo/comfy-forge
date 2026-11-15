@@ -1,22 +1,24 @@
 # Generator presets
 
-`presets.json` contains 39 operator-provided entries with titles, descriptions
+`presets.json` contains 42 operator-provided entries with titles, descriptions
 and `param_map` settings. It is preset data, not a ComfyUI node-graph workflow.
 Do not submit it to a workflow API or assume it installs models/custom nodes.
 
 Keep a backup before importing into a matching frontend. Resolve the selected
 model, VAE, sampler and scheduler against the installed backend; preserve local
 choices when names differ. Hardware/model-specific descriptions are tuning
-intent, not controlled quality or speed benchmarks. JSON parsing was checked;
-GPU generation and frontend import are not certified by the bundle gates.
+intent, not controlled quality or speed benchmarks. JSON parsing is checked by
+`TESTS/Test-AnimaInstall.ps1`; GPU generation and frontend import are not.
 
-## The Anima stack (auto-install)
+Three Anima presets use RES4LYF names (`beta57`, `res_2s`, `bong_tangent`). They
+work in SwarmUI once the RES4LYF node pack is installed (`image-stack.ps1 install`
+does that) and SwarmUI has been restarted.
+
+## The Anima stack
 
 `anima-manifest.json` pins the model files for a maximum-quality Anima setup
 and `TOOLS/Ensure-AnimaSwarmUI.ps1` installs them into a detected SwarmUI or
-ComfyUI install. `TOOLS/Ensure-Tools.ps1` runs the installer on every pass, so
-an install is set up automatically when a frontend is present.
+ComfyUI install; `TOOLS/image-stack.ps1 install` runs it for you.
 
-See `ANIMA-HANDOFF.md` in this folder for how it works, the exact commands,
-and the facts the operator needs (including why RES4LYF sampler names cannot
-be used from SwarmUI).
+See `ANIMA-HANDOFF.md` in this folder for how it works, the exact commands and
+the facts the operator needs.

@@ -183,6 +183,36 @@ def split_namespace(raw: str) -> tuple[str, str]:
     return "", text
 
 
+def read_caption_text(path: str) -> tuple[str, str]:
+    """A caption file's text and a problem note ("" when there is none).
+
+    UTF-8 is the norm, but Windows PowerShell 5.1's `>` and `Out-File` write UTF-16,
+    and reading those bytes as UTF-8 turned every caption into NUL-separated
+    letters that still counted as tags. UTF-16 is recognised by its BOM, or by the
+    NUL bytes ASCII text has in every other position when there is no BOM.
+    """
+    with open(path, "rb") as f:
+        raw = f.read()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    elif raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            return raw.decode("utf-16"), ""
+        except UnicodeDecodeError:
+            pass
+    elif len(raw) >= 4 and raw.count(b"\x00") >= len(raw) // 4:
+        nul_odd = raw[1::2].count(0) > raw[0::2].count(0)
+        try:
+            return raw.decode("utf-16-le" if nul_odd else "utf-16-be"), ""
+        except UnicodeDecodeError:
+            pass
+    try:
+        return raw.decode("utf-8"), ""
+    except UnicodeDecodeError:
+        return (raw.decode("utf-8", errors="replace"),
+                "caption was not valid UTF-8; unreadable bytes replaced")
+
+
 def read_caption_detail(path: str) -> tuple[list[str], list[str], dict[str, str]]:
     """Booru caption file to tags, plus what each prefixed tag was declared to be.
 
@@ -192,15 +222,9 @@ def read_caption_detail(path: str) -> tuple[list[str], list[str], dict[str, str]
     """
     tags, problems = [], []
     kinds: dict[str, str] = {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            text = f.read()
-    except UnicodeDecodeError:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read()
-        problems.append("caption was not valid UTF-8; unreadable bytes replaced")
-    if text.startswith("\ufeff"):
-        text = text[1:]
+    text, problem = read_caption_text(path)
+    if problem:
+        problems.append(problem)
     if not text.strip():
         return [], ["caption file is empty"], {}
     raw_tags = []
@@ -263,6 +287,14 @@ def refine_tags(tags: list[str], kinds: dict[str, str], args) -> tuple[list[str]
     """
     notes = []
     kept = list(tags)
+    if args.exclude:
+        # An existing caption is filtered too: inspect tells you to --exclude a tag
+        # that sits in most captions, which only worked for tagger predictions.
+        # `some_painter` also removes the artist tag `@some painter`.
+        gone = [t for t in kept if t in args.exclude or t.lstrip("@") in args.exclude]
+        if gone:
+            kept = [t for t in kept if t not in gone]
+            notes.append("excluded %s" % ", ".join(gone))
     if not args.keep_bookkeeping:
         gone = [t for t in kept if is_bookkeeping(t)]
         if gone:
@@ -823,6 +855,49 @@ def write_dataset(entries: list[dict], args) -> tuple[list[str], list[str]]:
     return written, problems
 
 
+def prune_stale(previous: dict[str, dict], entries: list[dict], out_dir: str) -> tuple[list[str], list[str]]:
+    """Remove pairs an earlier run exported that this run no longer exports.
+
+    Without this, a rebuild after a source image was deleted (or became a duplicate,
+    or too small) left the old pair in the folder, and `validate` failed the
+    dataset the tool had just written. Only files the previous manifest recorded
+    are touched, and only while they still hold what that run wrote: an image with
+    the recorded hash, a caption with the recorded text. Anything changed by hand is
+    kept and reported.
+
+    Only two cases prune: the source is gone, or this run deliberately leaves the
+    image out (duplicate, too small). A failure - no tagger this time, an unreadable
+    source, an empty caption - keeps the previous pair: the run already exits non-zero,
+    and a transient outage must not cost the work. A conflict keeps its caption.
+
+    Returns (removed relative paths, problems).
+    """
+    current = {e["out_rel"] for e in entries if e["status"] not in ("duplicate", "too-small")}
+    removed, problems = [], []
+    for rel, old in previous.items():
+        if rel in current or old.get("status") != "ok":
+            continue
+        image = os.path.join(out_dir, rel)
+        caption_rel = old.get("out_caption") or (os.path.splitext(rel)[0] + ".txt")
+        caption = os.path.join(out_dir, caption_rel)
+        for path, rel_path, ours in (
+                (image, rel, lambda p: sha256_of(p) == old.get("source_sha256")),
+                (caption, caption_rel,
+                 lambda p: read_caption_text(p)[0].strip() == (old.get("caption") or "").strip())):
+            if not os.path.isfile(path):
+                continue
+            try:
+                if ours(path):
+                    os.remove(path)
+                    removed.append(rel_path)
+                else:
+                    problems.append("%s is no longer part of the dataset but was changed by hand, so it "
+                                    "was kept; move or delete it yourself" % rel_path)
+            except OSError as exc:
+                problems.append("%s: could not remove a stale file: %s" % (rel_path, exc))
+    return removed, problems
+
+
 def review_rows(entries: list[dict]) -> list[dict]:
     return [{"image": e["out_rel"], "origin": e["origin"] or e["status"],
              "tags": len(e["tags"]), "caption": e["caption"],
@@ -1362,8 +1437,14 @@ def main(argv: list[str] | None = None, tagger_factory=None) -> int:
         return result(0, captions=[{"image": e["out_rel"], "status": e["status"],
                                     "caption": e["caption"]} for e in entries])
 
+    previous_entries, _ = load_previous(args.out)
     written, write_problems = write_dataset(entries, args)
     problems.extend(write_problems)
+    stale, stale_problems = prune_stale(previous_entries, entries, args.out)
+    problems.extend(stale_problems)
+    if stale:
+        say("removed %d file(s) a previous run exported that are no longer in the dataset: %s"
+            % (len(stale), ", ".join(stale[:6]) + (" ..." if len(stale) > 6 else "")))
     os.makedirs(args.out, exist_ok=True)
     manifest_path = os.path.join(args.out, "dataset-manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:

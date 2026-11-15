@@ -18,10 +18,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-ModelInstall.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-Version.ps1
 python TESTS\test_merge.py
 python TESTS\test_music.py
+python TESTS\test_mcp_config.py          # mcp -Write keeps the rest of an agent config
+python TESTS\test_installers.py          # weight installers: root discovery, missing drive
+python TESTS\test_dataset_regressions.py # --exclude, UTF-16 captions, stale pairs
 python TESTS\validate_workflows.py
 python TESTS\validate_workflows.py --self-test
 python TESTS\test_mcp_handshake.py
 ```
+
+`powershell -File TOOLS\preflight.ps1` runs all of them and gives one verdict.
 
 `test_merge.py` needs `torch` and `safetensors`. If the system Python lacks
 them, use the interpreter ComfyUI already ships:
@@ -61,7 +66,7 @@ image arriving does not prove it rendered.
 The MCP surface is proven separately, including a real submission:
 
 ```powershell
-python TESTS	est_mcp_handshake.py --workflow
+python TESTS\test_mcp_handshake.py --workflow
 ```
 
 That enqueues through the MCP tool and waits for the job to produce an image.

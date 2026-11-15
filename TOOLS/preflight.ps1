@@ -53,6 +53,9 @@ Run-Check 'model install'     'powershell' @('-NoProfile', '-ExecutionPolicy', '
 Run-Check 'node pack state'   'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-NodePackState.ps1')
 Run-Check 'release identity'  'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Release.ps1')
 Run-Check 'version'           'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'TESTS\Test-Version.ps1')
+Run-Check 'mcp config write'  $py @('TESTS\test_mcp_config.py')
+Run-Check 'weight installers' $py @('TESTS\test_installers.py')
+Run-Check 'node pack compat'  $py @('TESTS\test_nodepack_compat.py')
 Run-Check 'merge math'        $py @('TESTS\test_merge.py')
 Run-Check 'merge artifacts'   $py @('TESTS\test_merge_artifacts.py')
 Run-Check 'deps resolver'     $py @('TOOLS\check_deps.py', '--self-test')
@@ -63,6 +66,7 @@ Run-Check 'music installer'    $py @('TESTS\test_music_install.py')
 Run-Check 'workflow convert'  $py @('TESTS\test_workflow_convert.py')
 Run-Check 'dataset captions'  $py @('TESTS\test_dataset_prep.py')
 Run-Check 'dataset pipeline'  $py @('TESTS\test_dataset_pipeline.py')
+Run-Check 'dataset regress'   $py @('TESTS\test_dataset_regressions.py')
 Run-Check 'workflow lineage gate' $py @('TESTS\validate_workflows.py', '--self-test')
 Run-Check 'dependency lock'   $py @('TOOLS\validate-lock.py') 3
 Run-Check 'MCP surface'       $py @('TESTS\test_mcp_handshake.py') 3

@@ -52,6 +52,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 merge 
   -Weights 0.85,0.75,0.60,0.50 -Scale 1.0 -AcceptFallbackAnchor
 ```
 
+A bare file name (no folder) is looked up in SwarmUI's `Models\Stable-Diffusion` tree
+and ComfyUI's `checkpoints` / `diffusion_models`; a name that matches two files is
+refused with both paths. `-Weights 0.85,0.75,...` works both from a PowerShell prompt
+and through `powershell -File`.
+
 Donor #1 doubles as the anchor here because these four checkpoints share a
 lineage but their true common ancestor is not on disk. It keeps its 0.85 weight,
 so the blend still comes out 31.5 / 27.8 / 22.2 / 18.5 %. Drop
@@ -84,11 +89,20 @@ checks this and refuses rather than writing a broken file:
 
   ```
   base      Versetility - Diving-Anima_v9.0.safetensors  (685 tensors)
-  donor     Details - Terra Rising Unity 3.0 - Turbo   weight 0.75
-  donor     Composition - hentai_studio_quality        weight 0.60
-  donor     Consistensy - One obsession                weight 0.50
-  merged    567 tensors, kept 118 llm_adapter, skipped 0
+  donor     Versetility - Diving-Anima_v9.0.safetensors  weight 0.85
+  donor     Details - Terra Rising Unity 3.0 - Turbo.safetensors  weight 0.75
+  donor     Composition - hentai_studio_quality-000008.safetensors  weight 0.6
+  donor     Consistensy - One obsession_animaV5turbo.safetensors  weight 0.5
+  method    task-arithmetic  scale 1  dtype same as base
+  anchor    donor #1 also serves as the base: its task vector is zero, but its weight still counts in the denominator
+  share      31.48%  Versetility - Diving-Anima_v9.0.safetensors
+  share      27.78%  Details - Terra Rising Unity 3.0 - Turbo.safetensors
+  share      22.22%  Composition - hentai_studio_quality-000008.safetensors
+  share      18.52%  Consistensy - One obsession_animaV5turbo.safetensors
   ```
+
+  (The head of the report, in the format `merge_anima.py` prints; the counts that
+  follow depend on the files.) The anchor stays a donor with its weight.
 
   An explicit `-Base` is never overridden: if you name a base, that is what gets
   used, and a lineage mismatch is an error. `--allow-topology-mismatch` forces a

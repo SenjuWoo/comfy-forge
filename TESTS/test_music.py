@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -275,6 +276,25 @@ def test_cli():
               "--from an aio take with --variant xl-sft uses xl-sft's 50 steps, not the take's 8")
         r = run_cli(["build", "--from", side, "--steps", "12", "--out", g])
         check(r.returncode == 0 and json.load(open(g, encoding="utf-8"))["14"]["inputs"]["steps"] == 12, "a flag overrides --from")
+        # The planning pass settings are part of the take: a sidecar recorded them but
+        # --from rebuilt the graph with the defaults, so the replay was a different song.
+        r = run_cli(["generate", "--tags", "dub techno", "--duration", "30", "--seed", "7", "--no-audio-codes",
+                     "--lm-temperature", "1.2", "--lm-top-k", "40", "--name", "planned", "--out", out], url)
+        planned = Stub.submitted[-1]
+        planned_side = (last_json(r).get("files") or [""])[0] + ".json"
+        r = run_cli(["generate", "--from", planned_side, "--out", out], url)
+        replay = Stub.submitted[-1]["11"]["inputs"] if r.returncode == 0 else {}
+        check(Stub.submitted[-1] == planned,
+              "--from replays --no-audio-codes and the --lm-* values (%s)"
+              % {k: replay.get(k) for k in ("generate_audio_codes", "temperature", "top_k")})
+        r = run_cli(["generate", "--from", planned_side, "--lm-top-k", "10", "--out", out], url)
+        enc = Stub.submitted[-1]["11"]["inputs"]
+        check(enc["top_k"] == 10 and enc["temperature"] == 1.2 and enc["generate_audio_codes"] is False,
+              "an --lm-* flag overrides one replayed value and keeps the rest")
+        rec = json.load(open((last_json(r).get("files") or [""])[0] + ".json", encoding="utf-8"))
+        check(rec.get("lm_overrides") == {"temperature": 1.2, "top_k": 10} and rec.get("generate_audio_codes") is False,
+              "the sidecar of a replayed take records what was actually sent")
+
         bad = os.path.join(tmp, "not a take.json")
         with open(bad, "w", encoding="utf-8") as fh:
             fh.write("[1, 2]")
@@ -327,6 +347,14 @@ def test_cli():
         check(r.returncode == 0 and f"at {url}" in r.stdout, "the backend is found by probing ports")
         r = run_cli(["generate", "--tags", "pop", "--out", out], env={"COMFY_FORGE_PROBE_PORTS": "1,2"})
         check(r.returncode == 3 and "or pass --url" in r.stdout, "nothing answering: exit 3 with what to start")
+        # Windows takes about 2 s to refuse a connection to 127.0.0.1; 14 ports asked
+        # one after another made `check` take half a minute with no backend up.
+        closed = ",".join(str(p) for p in music.PROBE_PORTS if p != port)
+        started = time.time()
+        r = run_cli(["check"], env={"COMFY_FORGE_PROBE_PORTS": closed})
+        took = time.time() - started
+        check(r.returncode in (0, 3) and took < 8, "probing %d ports with nothing listening takes %.1f s, not ~2 s each"
+              % (len(closed.split(",")), took))
         r = run_cli(["check"], env={"COMFYUI_URL": url})
         check(r.returncode == 0, "COMFYUI_URL is honoured")
         r = run_cli(["check", "--variant", "all"], url)

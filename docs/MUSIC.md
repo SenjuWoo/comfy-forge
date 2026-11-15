@@ -47,6 +47,8 @@ pick.
 * `generate --from <file>.json` renders that take again. The same seed and settings give the same
   audio, sample for sample (checked live). Add flags to change one thing (`--duration 150`,
   `--variant xl-sft`, `--format mp3`), or `--reseed --count 4` for new takes with the same settings.
+  The planning-pass settings (`--no-audio-codes`, `--lm-*`) are part of the take and are replayed too;
+  an `--lm-*` flag changes one of them.
   A take made with one variant does not carry its step count into another; only values you set by
   hand are carried over.
 * ACE-Step sometimes finishes early and fills the rest with silence. When ffmpeg is on PATH each take

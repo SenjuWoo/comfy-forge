@@ -18,6 +18,7 @@ Usage:
     python TESTS/test_nodepack_compat.py [--nodes-dir <custom_nodes folder>]
 """
 import argparse
+import json
 import os
 import re
 import sys
@@ -27,6 +28,22 @@ BAD_CALL = re.compile(r"comfy\.model_management\.is_directml_enabled")
 BAD_IMPORT = re.compile(r"from\s+comfy\.model_management\s+import\s+[^\n]*is_directml_enabled")
 
 REMOVED = ("is_directml_enabled",)
+
+
+def recorded_roots():
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        return []
+    roots = []
+    for folder in ("comfy-kit", "Ultimate-AI-Starter-Bundle"):
+        path = os.path.join(base, folder, "anima-swarmui.json")
+        try:
+            with open(path, encoding="utf-8-sig") as fh:
+                frontends = json.load(fh).get("frontends") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        roots.extend(f["root"] for f in frontends if isinstance(f, dict) and f.get("root"))
+    return roots
 
 
 def find_nodes_dir(explicit=None):
@@ -40,6 +57,10 @@ def find_nodes_dir(explicit=None):
         v = os.environ.get(var)
         if v:
             roots.append(v)
+    # The install record names the frontend `image-stack.ps1 install` used. Without
+    # it this scan reported SKIP on a machine whose packs were installed, i.e. the
+    # one place the check matters.
+    roots.extend(recorded_roots())
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     roots.append(here)
     for root in roots:

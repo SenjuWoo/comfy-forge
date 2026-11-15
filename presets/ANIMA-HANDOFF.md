@@ -18,18 +18,20 @@ ComfyUI install. Read this before touching the files.
 
 1. **Finds frontends.** A folder is SwarmUI if it holds `SwarmUI.sln` +
    `Data\Backends.fds` + a `Models` folder. A folder is ComfyUI if it holds
-   `main.py` + `comfy\samplers.py` + a `models` folder. Detection uses
-   `SWARMUI_ROOT` / `COMFYUI_ROOT` (process or user scope), then a bounded
-   directory-name scan, then the path the previous run recorded.
+   `main.py` + `comfy\samplers.py` + a `models` folder. The roots the previous
+   run recorded are reused when their markers still hold (`-Refresh` skips
+   that); otherwise `SWARMUI_ROOT` / `COMFYUI_ROOT` (process or user scope),
+   then a bounded directory-name scan. `-SwarmUIRoot` / `-ComfyUIRoot` win.
 2. **Resolves SwarmUI's own layout from `Data\Settings.fds`** (`ModelRoot`,
    `SDModelFolder`, `SDVAEFolder`, `SDClipFolder`). It never guesses.
 3. **Downloads only what is missing.** Presence is by SHA-256, not by name, so
    a file that already exists under a different filename or subfolder counts.
 4. **Copies the presets** to `<SwarmUI>\Data\presets-uabs-anima.json` and adds
    `PRESETS-IMPORT.md` next to them.
-5. **Records the run** in
-   `%LOCALAPPDATA%\Ultimate-AI-Starter-Bundle\anima-swarmui.json` (override with
-   `-StateDir`).
+5. **Records the run** in `%LOCALAPPDATA%\comfy-kit\anima-swarmui.json`
+   (override with `-StateDir`). A record left under the older
+   `%LOCALAPPDATA%\Ultimate-AI-Starter-Bundle\` path is still read and updated
+   in place, so an upgrade keeps its verified-file cache.
 
 A machine with no SwarmUI or ComfyUI is a **no-op** (prints one line, exits 0).
 
@@ -63,9 +65,11 @@ Optional, only with `-IncludeOptional` (~3.1 GB extra):
 .\TOOLS\Ensure-AnimaSwarmUI.ps1 -SwarmUIRoot '<SwarmUI>'
 ```
 
-Downloads resume (`curl.exe -C -`) and stage to a `.part` file, so an
-interrupted run is safe to repeat. A file is only moved into place after both
-its byte length and SHA-256 match the manifest.
+Downloads resume (`curl.exe -C -`) from a staging folder beside the target
+(`<file>.stage-<id>\data`, named after the expected hash), so an interrupted run
+is safe to repeat. A file is only moved into place after both its byte length
+and SHA-256 match the manifest; a different file already there is kept as
+`<file>.replaced-*`.
 
 ## Important facts for an agent
 
