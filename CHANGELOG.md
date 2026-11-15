@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.6.2 - fix: RES4LYF 1.2.1 broke every generation on ComfyUI 0.45
+## v0.9.1 - fix: RES4LYF 1.2.1 broke every generation on ComfyUI 0.45
 
 **Symptom (reported by the operator):** every SwarmUI generation failed with
 `AttributeError: module 'comfy.model_management' has no attribute 'is_directml_enabled'`,
