@@ -49,6 +49,9 @@ jobs:
         shell: powershell
         run: ./TESTS/Test-NodePackState.ps1
 
+      - name: Node packs must not call removed ComfyUI APIs
+        run: python TESTS/test_nodepack_compat.py
+
       - name: Shipped workflow converts to an executable graph
         run: python TESTS/test_workflow_convert.py
 
