@@ -44,6 +44,15 @@ def detect_port():
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     want_workflow = "--workflow" in argv
+    # The workflow proof renders with one named checkpoint; the default is the one
+    # this test was first proven with. Another installed model: --checkpoint NAME.
+    want_ckpt = "woomixAnima_v175"
+    if "--checkpoint" in argv:
+        i = argv.index("--checkpoint")
+        if i + 1 >= len(argv):
+            print("usage: test_mcp_handshake.py [--workflow [--checkpoint NAME]]")
+            return 2
+        want_ckpt = argv[i + 1]
     port = detect_port()
     print(f"ok   backend detected on 127.0.0.1:{port}" if port
           else "note no ComfyUI backend is running; handshake only")
@@ -145,9 +154,10 @@ def main(argv=None):
         with _ur.urlopen(f"http://127.0.0.1:{port}/object_info/CheckpointLoaderSimple", timeout=20) as r:
             oi = json.loads(r.read().decode())
         ckpts = oi["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
-        ckpt = next((c for c in ckpts if "woomixAnima_v175" in str(c)), None)
+        ckpt = next((c for c in ckpts if want_ckpt in str(c)), None)
         if not ckpt:
-            print("UNVERIFIED: the merge checkpoint is not visible to CheckpointLoaderSimple")
+            print(f"UNVERIFIED: no checkpoint matching '{want_ckpt}' is visible to CheckpointLoaderSimple "
+                  "(pass --checkpoint with an installed one)")
             return 3
         print(f"note submitting a workflow through MCP with {ckpt} ...")
         # Compact mode exposes meta-tools only; the real call goes through
