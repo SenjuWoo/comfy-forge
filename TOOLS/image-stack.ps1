@@ -21,7 +21,9 @@
                                  1024x1024 render through SwarmUI's API
     merge -Donors a,b [-Weights 0.85,0.75] [-Out <file>] [-Scale 1.0]
                                  4-way Anima checkpoint merge to a real file
-    mcp [-Write <path>] [<agent>] print or write a ComfyUI MCP client config
+    mcp [-Write -Agent <claude|path>]
+                                 print a ComfyUI MCP client config, or write it into
+                                 a JSON agent config (the old file is kept as a backup)
     python                        print the interpreter this stack uses (the one
                                  that has torch); exit 1 when none is found
 
@@ -53,7 +55,9 @@ param(
   [string]$Out = '',
   [string]$Name = '',
   [string[]]$Donors = @(),
-  [string]$Weights = '',
+  # A list, so `-Weights 0.85,0.75` binds from a PowerShell session as well as
+  # from `powershell -File`, where the same text arrives as one string.
+  [string[]]$Weights = @(),
   [string]$Base = '',
   [double]$Scale = 1.0,
   [string]$Method = 'task-arithmetic',
@@ -145,7 +149,29 @@ function Get-SwarmPort {
   return 7801
 }
 
+function Get-OpenLocalPorts([int[]]$Ports, [int]$TimeoutMs = 500) {
+  # Windows takes about two seconds to report a refused connection to 127.0.0.1,
+  # so asking 14 ports one after another cost `status` half a minute whenever no
+  # backend was up. Every port is asked at once and the wait is shared.
+  $pending = @()
+  foreach ($p in $Ports) {
+    $client = New-Object Net.Sockets.TcpClient
+    try { $pending += @{ Port = $p; Client = $client; Async = $client.BeginConnect('127.0.0.1', $p, $null, $null) } }
+    catch { $client.Close() }
+  }
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+  $open = @()
+  foreach ($item in $pending) {
+    $left = [int][Math]::Max(0, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+    try { if ($item.Async.AsyncWaitHandle.WaitOne($left) -and $item.Client.Connected) { $open += $item.Port } }
+    catch { }
+    finally { $item.Client.Close() }
+  }
+  return , @($open)
+}
+
 function Test-SwarmUp([int]$P) {
+  if (-not (Get-OpenLocalPorts @($P)).Count) { return $false }
   try {
     $null = Invoke-RestMethod -Uri "http://127.0.0.1:$P/API/GetNewSession" -Method Post `
       -ContentType 'application/json' -Body '{}' -TimeoutSec 4 -UseBasicParsing
@@ -164,14 +190,19 @@ function New-SwarmSession([int]$P) {
 # starts at BackendStartingPort (7820). Probe for /system_stats instead of
 # assuming a port number.
 function Get-ComfyUIPort {
-  foreach ($p in @(8188) + (7820..7832)) {
+  # Asked more than once per run (status prints it twice); the answer does not change.
+  if ($null -ne $script:ComfyUIPortCache) { return $script:ComfyUIPortCache }
+  $found = 0
+  # An open socket is not a ComfyUI: only a port that answers /system_stats counts.
+  foreach ($p in (Get-OpenLocalPorts (@(8188) + (7820..7832)))) {
     try {
-      $r = Invoke-RestMethod -Uri "http://127.0.0.1:$p/system_stats" -TimeoutSec 2 -UseBasicParsing
-      if ($r.system) { return $p }
+      $r = Invoke-RestMethod -Uri "http://127.0.0.1:$p/system_stats" -TimeoutSec 5 -UseBasicParsing
+      if ($r.system) { $found = $p; break }
     }
     catch { }
   }
-  return 0
+  $script:ComfyUIPortCache = $found
+  return $found
 }
 
 function Find-Python {
@@ -450,8 +481,7 @@ function Install-NodePackDeps([string]$Python) {
 }
 
 # ---------------------------------------------------------------------------
-# Discovery - read what the installer already recorded instead of re-scanning
-# every drive. The installer owns detection; this only reads its result.
+# Node packs - pinned in config\dependencies.lock.json, judged by state.
 # ---------------------------------------------------------------------------
 function Get-DependencyLock {
   # The tested revision of each external pack. Absent file means "unpinned", and
@@ -717,12 +747,57 @@ function Invoke-Generate {
   }
 }
 
+function Resolve-CheckpointPath([string]$Path, [string]$What) {
+  # A path that exists is used as given. A bare file name is looked up in the
+  # model trees, so `-Donors "name.safetensors"` works from any folder; two files
+  # with that name are an error rather than a guess.
+  if (Test-Path -LiteralPath $Path -PathType Leaf) { return $Path }
+  if ((Split-Path -Leaf $Path) -ne $Path) { Fail "$What checkpoint not found: $Path" }
+  $trees = @()
+  $swarm = Get-SwarmRoot
+  if ($swarm) {
+    $trees += , @((Join-Path $swarm 'Models\Stable-Diffusion'))
+    $trees += , @((Join-Path $swarm 'dlbackend\comfy\ComfyUI\models\checkpoints'),
+                  (Join-Path $swarm 'dlbackend\comfy\ComfyUI\models\diffusion_models'))
+  }
+  $comfy = Get-ComfyRoot
+  if ($comfy) { $trees += , @((Join-Path $comfy 'models\checkpoints'), (Join-Path $comfy 'models\diffusion_models')) }
+  foreach ($tree in $trees) {
+    $hits = @()
+    foreach ($dir in $tree) {
+      if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+      $hits += @(Get-ChildItem -LiteralPath $dir -Recurse -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -eq $Path })
+    }
+    if ($hits.Count -eq 1) { return $hits[0].FullName }
+    if ($hits.Count -gt 1) {
+      Fail ("$What checkpoint name '$Path' matches $($hits.Count) files; pass the full path: " +
+            (($hits | ForEach-Object { $_.FullName }) -join '; '))
+    }
+  }
+  Fail "$What checkpoint not found: $Path"
+}
+
+function Invoke-MergeEngine([string]$Python, [string]$Script, [object[]]$Arguments) {
+  # merge_anima.py reports refusals on stderr and the exit code says which one
+  # (3 = different lineage, which the caller may retry). Under EAP=Stop, PS 5.1
+  # can turn that stderr line into a terminating error, so the retry never ran.
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $Python $Script @Arguments 2>&1 | ForEach-Object { Write-Host "$_" }
+    return [int]$LASTEXITCODE
+  }
+  finally { $ErrorActionPreference = $prev }
+}
+
 function Invoke-Merge {
   # Accept -Donors a,b as well as -Donors a,b,c: some shells (and copy-paste
   # from a comma list) deliver the whole list as one string.
   $DonorPaths = @($Donors | ForEach-Object { $_ -split ',' } |
                   ForEach-Object { $_.Trim().Trim('"') } | Where-Object { $_ })
   if ($DonorPaths.Count -lt 1) { Fail 'merge needs -Donors (one path per checkpoint, up to 4)' }
+  $weightText = (@($Weights | ForEach-Object { "$_" -split '[,\s]+' } | Where-Object { $_ }) -join ',')
   # Remember whether the caller chose a base before the default fills it in:
   # a default base must not block the same-lineage retry below.
   $explicitBase = [bool]$Base
@@ -731,8 +806,8 @@ function Invoke-Merge {
     if (-not $swarm) { Fail 'merge needs -Base, or a SwarmUI install to find Anima-2.9B-preview-v1' }
     $Base = Join-Path $swarm 'Models\Stable-Diffusion\Anima\Anima-2.9B-preview-v1.safetensors'
   }
-  if (-not (Test-Path -LiteralPath $Base)) { Fail "base checkpoint not found: $Base" }
-  foreach ($d in $DonorPaths) { if (-not (Test-Path -LiteralPath $d)) { Fail "donor checkpoint not found: $d" } }
+  $Base = Resolve-CheckpointPath $Base 'base'
+  $DonorPaths = @($DonorPaths | ForEach-Object { Resolve-CheckpointPath $_ 'donor' })
 
   if (-not $Out) {
     $dir = if ($swarm) { Join-Path $swarm 'Models\Stable-Diffusion\Anima' } else { Join-Path $Root 'out' }
@@ -741,6 +816,7 @@ function Invoke-Merge {
   }
 
   $python = Find-Python
+  if (-not $python) { Fail 'no python interpreter was found for the merge; `image-stack.ps1 status` shows what is missing' }
   $mergeScript = Join-Path $PSScriptRoot 'merge_anima.py'
   $reportPath = Join-Path ([IO.Path]::GetTempPath()) ("comfy-forge-merge-" + [guid]::NewGuid().ToString('N').Substring(0,8) + '.json')
   # One builder for every execution: the fallback retry used to rebuild this list
@@ -750,15 +826,14 @@ function Invoke-Merge {
     $a = @('--base', $Anchor, '--out', $Out, '--method', $Method, '--scale', $Scale,
            '--report', $reportPath)
     foreach ($d in $DonorPaths) { $a += @('--donor', $d) }
-    if ($Weights) { $a += @('--weights', $Weights) }
+    if ($weightText) { $a += @('--weights', $weightText) }
     if ($Force) { $a += '--force' }
     return ,$a
   }
   $argv = & $buildArgs $Base
 
   Note ("merging {0} donor(s) onto {1}" -f $DonorPaths.Count, (Split-Path -Leaf $Base))
-  & $python $mergeScript @argv
-  $exit = $LASTEXITCODE
+  $exit = Invoke-MergeEngine $python $mergeScript $argv
 
   # Exit 3 means the base is a different Anima lineage than the donors. Those
   # cannot be blended, and there is no verified ancestor to use instead.
@@ -782,8 +857,7 @@ function Invoke-Merge {
     Note ("anchoring on {0}: a different lineage from the requested base, so it becomes both the anchor and donor #1" -f (Split-Path -Leaf $Base))
     Note 'all donors keep their original weights; the anchor contributes a zero task vector rather than being removed'
     $argv = & $buildArgs $Base
-    & $python $mergeScript @argv
-    $exit = $LASTEXITCODE
+    $exit = Invoke-MergeEngine $python $mergeScript $argv
   }
   if ($exit -ne 0) { Fail "merge failed (python exit $exit)" }
 
@@ -866,7 +940,7 @@ function Show-Mcp {
     Say ("# target: http://127.0.0.1:{0}/" -f $cp)
     Say $json
     Say ''
-    Say '# write it with:  image-stack.ps1 mcp -Write -Agent hermes'
+    Say '# write it with:  image-stack.ps1 mcp -Write -Agent claude   (or -Agent <path to a JSON config>)'
     return
   }
   $target = switch ($Agent) {
@@ -880,19 +954,26 @@ function Show-Mcp {
     Say $json
     return
   }
-  if (-not (Test-Path -LiteralPath $target)) {
-    $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $target -Encoding UTF8
-    Ok "created $target with the comfyui server (port $cp)"
-    return
+  # The config is the user's file and holds far more than this one entry, so the
+  # edit goes through TOOLS\mcp_config.py. PowerShell 5.1's JSON cmdlets read
+  # UTF-8 as ANSI, turn anything nested past their depth limit into a string and
+  # write a BOM; that round trip damaged a real config and kept no backup.
+  $py = Find-Python
+  if (-not $py) {
+    Write-Host "error  no python was found, so $target was not edited; add this block to it by hand:" -ForegroundColor Red
+    Say $json
+    exit 1
   }
-  # Existing file: add or replace only the "comfyui" entry, keep everything else.
-  $existing = Get-Content -LiteralPath $target -Raw | ConvertFrom-Json
-  if (-not $existing.PSObject.Properties['mcpServers']) {
-    $existing | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{})
+  $serverFile = Join-Path ([IO.Path]::GetTempPath()) ('comfy-forge-mcp-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+  # A file, not an argument: PowerShell 5.1 strips the quotes out of JSON passed to a native command.
+  [IO.File]::WriteAllText($serverFile, ($config.mcpServers.comfyui | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding $false))
+  try {
+    & $py (Join-Path $PSScriptRoot 'mcp_config.py') --target $target --name comfyui --server-file $serverFile
+    $code = $LASTEXITCODE
   }
-  $existing.mcpServers | Add-Member -NotePropertyName comfyui -NotePropertyValue $config.mcpServers.comfyui -Force
-  $existing | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $target -Encoding UTF8
-  Ok "wrote comfyui server into $target (port $cp)"
+  finally { Remove-Item -LiteralPath $serverFile -Force -ErrorAction SilentlyContinue }
+  if ($code -ne 0) { Fail "the comfyui server was not written into $target" }
+  Ok "comfyui server is in $target (port $cp)"
 }
 
 switch ($Verb) {

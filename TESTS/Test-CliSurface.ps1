@@ -159,6 +159,43 @@ if ($r.Exit -ne 0 -and $r.Text) {
   Fail "generate unknown preset: exit=$($r.Exit) text=$($r.Text)"
 }
 
+# -Weights 0.85,0.75 typed in a PowerShell session arrives as an array; a [string]
+# parameter refused it with "Cannot convert value to type System.String".
+$weightsType = (Get-Command $cli).Parameters['Weights'].ParameterType
+if ($weightsType -eq [string[]]) { Pass '-Weights accepts a list typed in a PowerShell session' }
+else { Fail "-Weights is $weightsType; a session call with 0.85,0.75 will not bind" }
+
+# --- 3b. mcp -Write edits a config without damaging the rest of it -----------
+$mcpDir = Join-Path ([IO.Path]::GetTempPath()) ('mcp-write-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
+try {
+  $agentFile = Join-Path $mcpDir 'agent.json'
+  $accent = [string][char]0xE9
+  # 16 levels: deeper than the depth the old ConvertTo-Json call kept.
+  $nested = '"leaf"'
+  foreach ($i in 1..16) { $nested = '{"n' + $i + '":' + $nested + '}' }
+  $body = '{"name":"caf' + $accent + '","tree":' + $nested + ',"mcpServers":{"other":{"command":"x"}}}'
+  [IO.File]::WriteAllText($agentFile, $body, (New-Object Text.UTF8Encoding $false))
+  $r = Invoke-Cli @('mcp', '-Write', '-Agent', $agentFile, '-Port', '8188')
+  $bytes = [IO.File]::ReadAllBytes($agentFile)
+  $text = [Text.Encoding]::UTF8.GetString($bytes)
+  $backup = @(Get-ChildItem -LiteralPath $mcpDir -Filter 'agent.json.bak-*')
+  if ($r.Exit -eq 0 -and $text -match '"comfyui"' -and $text -match '"other"') {
+    Pass 'mcp -Write adds the server and keeps the others'
+  } else { Fail "mcp -Write: exit=$($r.Exit) $($r.Text.Trim())" }
+  if ($text.Contains('caf' + $accent) -and $bytes[0] -eq 0x7B) {
+    Pass 'mcp -Write keeps non-ASCII text and adds no BOM'
+  } else { Fail 'mcp -Write changed the text encoding of the config' }
+  if ($text -match '"n1":\s*"leaf"' -and $text -notmatch '@\{') {
+    Pass 'mcp -Write keeps deeply nested values'
+  } else { Fail 'mcp -Write flattened a nested value' }
+  if ($backup.Count -eq 1 -and [IO.File]::ReadAllText($backup[0].FullName, (New-Object Text.UTF8Encoding $false)) -eq $body) {
+    Pass 'mcp -Write keeps the previous config as a backup'
+  } else { Fail "mcp -Write backup count=$($backup.Count)" }
+} finally {
+  Remove-Item -LiteralPath $mcpDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- 4. install: only safe where no real SwarmUI exists ---------------------
 $swarm = Get-RealSwarmRoot
 if ($swarm) {

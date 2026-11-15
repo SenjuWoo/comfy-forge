@@ -63,7 +63,11 @@ if ($otherDrive) {
   Write-Host 'skip cross-volume case (no second writable volume)'
 }
 
-# 5. Missing source must not create anything.
+# 5. The identity carries the volume serial, not a drive-letter stand-in.
+$id = Get-FileIdentity $model
+Check ($id -and $id -notmatch '^[A-Za-z](:\\)?:') "file identity names the volume serial ($id)"
+
+# 6. Missing source must not create anything.
 $r5 = Set-ModelMirror -Source (Join-Path $root 'nope.safetensors') -DestinationDirectory $dstDir
 Check ($r5.Kind -eq 'error') 'missing source is reported as an error'
 Check (-not (Test-Path (Join-Path $dstDir 'nope.safetensors'))) 'missing source creates no destination'

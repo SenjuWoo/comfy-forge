@@ -7,12 +7,17 @@ function Get-FileIdentity([string]$Path) {
   # Length and name say nothing: a copy and a hard link look identical to both.
   $full = [IO.Path]::GetFullPath($Path)
   if (-not (Test-Path -LiteralPath $full)) { return $null }
-  $drive = [IO.Path]::GetPathRoot($full).TrimEnd('').TrimEnd(':')
+  # "Z:\" -> "Z". The old TrimEnd('') removed nothing, so fsutil was asked about
+  # "Z:\:" and the volume serial was never read.
+  $drive = [IO.Path]::GetPathRoot($full).TrimEnd('\').TrimEnd(':')
   $idRaw = (& cmd.exe /c "fsutil file queryfileid `"$full`" 2>nul") -join ' '
   if ($idRaw -notmatch 'File ID is 0x([0-9a-fA-F]+)') { return $null }
   $id = $Matches[1]
-  $volRaw = (& cmd.exe /c ("fsutil fsinfo volumeinfo {0}: 2>nul" -f $drive)) -join ' '
-  $serial = if ($volRaw -match 'Serial Number is 0x([0-9a-fA-F]+)') { $Matches[1] } else { $drive }
+  # `fsutil fsinfo volumeinfo` needs an elevated shell ("Access is denied" for a
+  # normal user); the WMI disk record gives the same serial without elevation.
+  $serial = $null
+  try { $serial = (Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='{0}:'" -f $drive) -ErrorAction Stop).VolumeSerialNumber } catch { }
+  if (-not $serial) { $serial = $drive }
   return ("{0}:{1}" -f $serial, $id)
 }
 
