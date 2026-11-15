@@ -224,12 +224,34 @@ def resolve_backend(url):
     if url:
         base = url.rstrip("/")
         return base, backend_up(base)
-    for port in probe_ports():
+    for port in open_ports(probe_ports()):
         base = f"http://127.0.0.1:{port}"
-        stats = backend_up(base, timeout=2)
+        stats = backend_up(base, timeout=5)
         if stats:
             return base, stats
     return None, None
+
+
+def open_ports(ports, timeout=0.5):
+    """The ports that accept a connection, in the order asked.
+
+    Windows takes about two seconds to refuse a connection to 127.0.0.1, so asking
+    14 ports one after another made `check` take half a minute with no backend up.
+    All are asked at once; only an open port is then asked for /system_stats.
+    """
+    import socket
+    from concurrent.futures import ThreadPoolExecutor
+
+    def accepts(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+
+    if not ports:
+        return []
+    with ThreadPoolExecutor(max_workers=len(ports)) as pool:
+        flags = list(pool.map(accepts, ports))
+    return [p for p, ok in zip(ports, flags) if ok]
 
 
 def no_backend_message(url):
@@ -400,6 +422,8 @@ REPLAY_KEYS = {
 # Replayed only when the earlier take set them by hand ("overrides"), so a take made
 # with one variant does not carry its step count into another variant.
 OVERRIDE_KEYS = ("steps", "cfg", "shift", "format")
+# Encoder input -> argparse dest of the flag that overrides it.
+LM_FLAGS = {"cfg_scale": "lm_cfg", "temperature": "lm_temperature", "top_p": "lm_top_p", "top_k": "lm_top_k"}
 
 
 def load_replay(path):
@@ -443,6 +467,17 @@ def resolve_settings(args):
         lyrics = read_text_arg(args.lyrics, args.lyrics_file, "lyrics")
         if lyrics is not None:
             s["lyrics"] = lyrics
+    # The language-model planning pass is part of the take: replay what the sidecar
+    # recorded, then let an --lm-* flag or --no-audio-codes change one thing.
+    lm = {k: v for k, v in (replay.get("lm_overrides") or {}).items() if k in ENCODER_DEFAULTS}
+    for key, dest in LM_FLAGS.items():
+        value = getattr(args, dest, None)
+        if value is not None:
+            lm[key] = value
+    s["lm"] = lm
+    s["audio_codes"] = bool(replay.get("generate_audio_codes", True))
+    if getattr(args, "no_audio_codes", False):
+        s["audio_codes"] = False
     s["name"] = getattr(args, "name", "") or replay.get("name") or ""
     s.setdefault("variant", DEFAULT_VARIANT)
     s.setdefault("lyrics", "")
@@ -467,15 +502,12 @@ def warn(message):
 
 
 def graph_for(s, seed, prefix, args):
-    lm = {k: v for k, v in (("cfg_scale", getattr(args, "lm_cfg", None)),
-                            ("temperature", getattr(args, "lm_temperature", None)),
-                            ("top_p", getattr(args, "lm_top_p", None)),
-                            ("top_k", getattr(args, "lm_top_k", None))) if v is not None}
+    lm = dict(s.get("lm") or {})
     graph = build_graph(s["variant"], s["tags"], s["lyrics"], duration=float(s["duration"]), bpm=int(s["bpm"]),
                         key=s["key"], time_signature=str(s["time_signature"]), language=s["language"],
                         seed=seed, steps=s.get("steps"), cfg=s.get("cfg"), shift=s.get("shift"),
                         audio_format=s.get("format"), prefix=prefix, lm=lm,
-                        generate_audio_codes=not getattr(args, "no_audio_codes", False))
+                        generate_audio_codes=s.get("audio_codes", True))
     return graph, lm
 
 
@@ -584,7 +616,7 @@ def write_sidecar(dest, s, seed, args, stats, prompt_id, elapsed, lm, music_end=
         "shift": s.get("shift") if s.get("shift") is not None else VARIANTS[s["variant"]]["shift"],
         "format": os.path.splitext(dest)[1].lstrip(".").lower(),
         "overrides": {k: s[k] for k in OVERRIDE_KEYS if s.get(k) is not None},
-        "generate_audio_codes": not getattr(args, "no_audio_codes", False), "lm_overrides": lm,
+        "generate_audio_codes": s.get("audio_codes", True), "lm_overrides": lm,
         "comfyui_version": stats.get("system", {}).get("comfyui_version"),
         "prompt_id": prompt_id, "render_seconds": round(elapsed, 2), "music_seconds": music_end,
         "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
