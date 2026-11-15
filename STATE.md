@@ -43,6 +43,10 @@ heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and t
 
 **Next**
 
+- Release 0.10.0: PR SenjuWoo/comfy-forge#43 (branch `audit-0.10.0`) is open. After
+  its `test` check is green: merge, wait for `ci` on main's merge SHA, tag `v0.10.0`
+  on that SHA, let `release-verify` pass, publish the release, then rerun
+  `TOOLS/preflight.ps1` and `image-stack.ps1 status` from the merged tree.
 - A live backend session to clear the one UNVERIFIED preflight check (MCP
   surface) and to run `integration_live.py`, `integration_music.py` and
   `test_mcp_handshake.py --workflow` against 0.10.0.
