@@ -1,10 +1,10 @@
 {
   "//": "Tested revisions. install uses exactly these; status reports drift. Nothing here is auto-promoted from upstream - a new upstream commit is only pinned after it has been installed and exercised locally.",
-  "updated": "2026-11-06",
+  "updated": "2026-11-14",
   "verified_on": {
     "windows": "11",
     "gpu": "RTX 4080 SUPER",
-    "comfyui": "0.44.0",
+    "comfyui": "0.45.0",
     "swarmui": "0.9.8.4"
   },
   "node_packs": [
@@ -28,8 +28,8 @@
     {
       "name": "RES4LYF",
       "url": "https://github.com/ClownsharkBatwing/RES4LYF.git",
-      "sha": "6780724de0ddb98e7454d54bb80387836a911ece",
-      "version": null,
+      "sha": "cb2c312d979b3ab4aaca97a3b70f892f4be554f4",
+      "version": "1.2.2",
       "provides": [
         "beta57",
         "bong_tangent",
@@ -43,7 +43,8 @@
         "pywavelets",
         "numpy>=1.26.4"
       ],
-      "notes": "Adds 2 schedulers (9 -> 11) and 19 samplers (45 -> 64) to KSampler; SwarmUI merges those lists at backend connect."
+      "notes": "Adds 2 schedulers (9 -> 11) and 19 samplers (45 -> 64) to KSampler; SwarmUI merges those lists at backend connect. 1.2.2 is required on ComfyUI 0.45+: 1.2.1 called comfy.model_management.is_directml_enabled, which ComfyUI removed, so every KSampler (SwarmKSampler included) died with AttributeError at sample time.",
+      "verified": "2026-11-14: checked out at this SHA on ComfyUI 0.45.0; RES4LYF imports clean (no removed-API call sites, see TESTS/test_nodepack_compat.py); SwarmKSampler + beta57 rendered a real 512x512 image with woomixAnima_v180."
     }
   ],
   "python_packages": [

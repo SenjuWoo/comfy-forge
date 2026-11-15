@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.6.2 - fix: RES4LYF 1.2.1 broke every generation on ComfyUI 0.45
+
+**Symptom (reported by the operator):** every SwarmUI generation failed with
+`AttributeError: module 'comfy.model_management' has no attribute 'is_directml_enabled'`,
+reported against the sampler node (SwarmKSampler) with model `woomixAnima_v180`.
+
+**Cause:** ComfyUI 0.45 removed the DirectML helpers from `comfy.model_management`.
+RES4LYF 1.2.1 (the pinned node pack, `6780724`) still called
+`comfy.model_management.is_directml_enabled` in three files (`helper.py`,
+`chroma/math.py`, `flux/math.py`). RES4LYF patches ComfyUI's sampling internals, so the
+call fired inside every KSampler - including SwarmUI's own SwarmKSampler - and the
+error named the sampler, not the pack at fault. Not a comfy-forge regression: no code
+here changed between v0.6.0 and this failure; the pack's API call aged out.
+
+**Fix:** RES4LYF 1.2.2 (`cb2c312`, upstream 2026-11-12) guards the call
+(`getattr(comfy.model_management, "is_directml_enabled", None)`). The lock now pins
+1.2.2.
+
+**Verified on this machine (2026-11-14, ComfyUI 0.45.0):**
+- RES4LYF imports clean; no removed-API call sites remain.
+- `TESTS/integration_live.py --checkpoint woomixAnima_v180`: PASS - real 512x512 image,
+  mean 109.1, beta57 scheduler.
+- The exact failing node: an API graph with **SwarmKSampler + beta57 + woomixAnima_v180**
+  rendered `swarmksampler-fix_00001_.png` (512x512, mean 203.9, coherent image).
+
+**New regression guard:** `TESTS/test_nodepack_compat.py` scans installed packs for
+calls to APIs ComfyUI removed; fails on the offending file/line, passes on a clean tree.
+Proven both ways: FAIL on 1.2.1's three call sites, PASS on 1.2.2. Wired into CI.
+
+Docs: `docs/UPDATING.md` gains a "When ComfyUI removes an API a pack calls" section
+(symptom, one-command check, fix, re-pin).
+
+No changes to the 3D templates, dataset tooling or merge code.
+
 ## v0.9.0 - Music: takes, sidecars and replay
 
 Making music is mostly rendering several takes and keeping the good one. The music tool now
