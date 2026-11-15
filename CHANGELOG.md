@@ -60,6 +60,9 @@ first and has a test that failed before it and passes now.
   with `-C -`. `-Force` (declared, never used) now replaces a file and keeps the old
   one as `.replaced-*`.
 - The PowerShell parse gate covered 4 files; it now covers every `.ps1`.
+- `TESTS/test_nodepack_compat.py` reported SKIP on a machine with the packs
+  installed unless `SWARMUI_ROOT` was set; it now reads the install record (here:
+  4 packs scanned, PASS).
 
 Not changed: formats, flags, file names, the music closing JSON line Asset Forge
 reads, presets, workflows, locks.
