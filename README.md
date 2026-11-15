@@ -52,7 +52,7 @@ verifies each file by SHA-256, so re-running is cheap and safe.
 | `presets` | List the presets; `-Name "<preset>"` prints one preset's settings |
 | `generate` | Render through SwarmUI's API into `out\` |
 | `merge` | Write a merged `.safetensors` and refresh SwarmUI's model list |
-| `mcp` | Print a ready client config for the ComfyUI MCP server |
+| `mcp` | Print a ready client config for the ComfyUI MCP server; `-Write -Agent claude` (or a path) adds it to a JSON agent config, keeping everything else and a backup |
 
 ## Preparing a training dataset
 
@@ -147,7 +147,8 @@ powershell -File TOOLS\image-stack.ps1 merge `
   -AcceptFallbackAnchor
 ```
 
-`-Base` names the shared ancestor. When the true ancestor is not on disk, the
+A bare file name is found in the SwarmUI and ComfyUI model folders; a full path
+works from anywhere. `-Base` names the shared ancestor. When the true ancestor is not on disk, the
 CLI refuses rather than silently changing your recipe; `-AcceptFallbackAnchor`
 then uses the first donor as the computational anchor and keeps it in the donor
 list with its weight, so the blend still sums to your intended 31.5/27.8/22.2/18.5.
@@ -256,7 +257,7 @@ presets/3d/                      3D templates (Idol, Pixal3D) — MIT, from Comf
 presets/music/                   ACE-Step 1.5 templates (turbo, XL) — MIT, from Comfy-Org workflow templates
 workflows/                       ComfyUI 4-way merge graph
 docs/                            DATASET.md, MERGE.md, MUSIC.md, ASSETFORGE.md, 3D-MODELS.md, GAME-READY.md, PRODUCTION-WORKFLOWS.md, banner, sample render
-TESTS/                           merge math, installer gate, PS parse, MCP handshake
+TESTS/                           merge, installers, dataset, music, MCP; TOOLS/preflight.ps1 runs them all
 ```
 
 ## Licence

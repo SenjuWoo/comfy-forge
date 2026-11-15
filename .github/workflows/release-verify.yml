@@ -1,8 +1,9 @@
 name: release-verify
 
-# A stable release must be provable from its own tag. This runs the same checks
-# as CI plus the release-identity test on the tagged tree, so a tag that still
+# A stable release must be provable from its own tag. This runs the release-identity
+# test on the tagged tree plus every offline check CI runs, so a tag that still
 # declares an RC version - the v0.5.0 mistake - fails here instead of shipping.
+# Checks that need the network or a backend (lock pins, MCP) stay in ci.yml.
 on:
   push:
     tags: ['v*']
@@ -26,11 +27,33 @@ jobs:
         shell: pwsh
         run: ./TESTS/Test-Release.ps1
 
+      - name: PowerShell parse gate
+        shell: powershell
+        run: ./TESTS/Test-PsSyntax.ps1
+
+      - name: Installer gate (no downloads)
+        shell: powershell
+        run: ./TESTS/Test-AnimaInstall.ps1
+
+      - name: CLI surface
+        shell: powershell
+        run: ./TESTS/Test-CliSurface.ps1
+
+      - name: MCP config write keeps the rest of the file
+        run: python TESTS/test_mcp_config.py
+
+      - name: Weight installers (root discovery, missing drive, dry run)
+        run: python TESTS/test_installers.py
+
       - name: Merge math
         run: python TESTS/test_merge.py
 
       - name: Merge artifacts (ownership, cleanup, failed copy)
         run: python TESTS/test_merge_artifacts.py
+
+      - name: Mirror safety
+        shell: powershell
+        run: ./TESTS/Test-Mirror.ps1
 
       - name: Workflow structure and shipped recipe
         shell: pwsh
@@ -40,8 +63,14 @@ jobs:
           if ($code -eq 3) { Write-Host "::warning::workflow topology UNVERIFIED on this runner"; exit 0 }
           if ($code -ne 0) { exit $code }
 
+      - name: Workflow lineage gate self-test (synthetic)
+        run: python TESTS/validate_workflows.py --self-test
+
       - name: Shipped workflow converts to an executable graph
         run: python TESTS/test_workflow_convert.py
+
+      - name: Node packs must not call removed ComfyUI APIs
+        run: python TESTS/test_nodepack_compat.py
 
       - name: 3D generation lock
         run: python TESTS/test_3d_generation.py
@@ -52,6 +81,12 @@ jobs:
       - name: Music installer (stuck-connection reconnect, resume, size check)
         run: python TESTS/test_music_install.py
 
+      - name: Dataset captions, pipeline and regressions
+        run: |
+          python TESTS/test_dataset_prep.py
+          python TESTS/test_dataset_pipeline.py
+          python TESTS/test_dataset_regressions.py
+
       - name: Model install safety (includes real HTTP resume)
         shell: pwsh
         run: ./TESTS/Test-ModelInstall.ps1
@@ -59,3 +94,12 @@ jobs:
       - name: Node pack state evaluation
         shell: pwsh
         run: ./TESTS/Test-NodePackState.ps1
+
+      - name: Dependency resolver and lock validator self-tests
+        run: |
+          python TOOLS/check_deps.py --self-test
+          python TOOLS/validate-lock.py --self-test
+
+      - name: Version consistency
+        shell: pwsh
+        run: ./TESTS/Test-Version.ps1

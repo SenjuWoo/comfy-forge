@@ -98,6 +98,8 @@ LoRA that the sentence is part of every image. Add `--append-concept` if you rea
 Booru tags become Anima caption text: `long_hair` → `long hair`, lowercased, whitespace
 collapsed, duplicates removed after normalisation, and `score_7` keeps its underscore
 because that is the exception Anima expects. Commas and newlines both split a caption file.
+Caption files may be UTF-8 (with or without a BOM) or UTF-16, which is what Windows
+PowerShell 5.1's `>` writes; anything else is read with the bad bytes replaced and reported.
 
 **Prefixes.** An exporter can write what kind of tag each one is. Those prefixes are read and
 never copied into a caption:
@@ -155,6 +157,11 @@ run after you edit or replace a picture writes the new bytes instead of leaving 
 picture beside the new caption. Captions and images are written through a temporary file and
 a rename, so an interrupted run cannot leave half a pair.
 
+A pair an earlier run exported is removed when its source is gone or it is now left out as a
+duplicate or too small, so the folder still validates. Only files that still hold what the tool
+wrote are removed; a caption or image you changed by hand is kept and reported. A failed
+regeneration (no tagger this time, say) keeps the previous pair and exits non-zero.
+
 `--resume` knows what the sources looked like last run, because the manifest records a hash
 of every source image *and* every source caption:
 
@@ -206,7 +213,7 @@ must match, or the run fails instead of handing you a broken archive.
 | `--threshold` | general tag cutoff, default 0.35 |
 | `--character-threshold` | copyright/character cutoff, default 0.50 |
 | `--max-tags` | cap per caption, default 40 |
-| `--exclude` | tags to strip, e.g. `watermark,signature` |
+| `--exclude` | tags to strip, e.g. `watermark,signature`, from existing captions and tagger output alike; an artist name also removes its `@name` tag; each removal is noted in `_review.tsv` |
 | `--drop-artists` | remove artist tags (artist LoRA bleed) |
 | `--resume` | keep captions already in the output folder; regenerate any whose source image changed |
 | `--force` | write into a non-empty output folder, refreshing anything whose source changed |
@@ -247,9 +254,11 @@ Three different things happen in this tool and they deserve separate names:
   does not know your character's name or which details are the point. It gets you to 90%.
 - WD14 v3 identifies style and content, not identity. Two different characters with the
   same tags get the same caption; add the distinguishing tags by hand.
-- `style` mode can only drop character/copyright tags when a tagger supplied the
-  categories. In `convert` mode no category data exists, so nothing is filtered by type —
-  check `_review.tsv`.
-- No near-duplicate detection, no cropping, no upscaling.
+- `style` mode can only drop character/copyright tags when category data exists: the
+  tagger's `selected_tags.csv` (read without loading the model, so `convert` can use it) or
+  a `character:` / `copyright:` prefix in the source. With neither, nothing is filtered by
+  type and every kept tag is listed in `_review.tsv`.
+- Near duplicates are reported by `inspect` and never removed for you. No cropping, no
+  upscaling.
 - `eva02` is more accurate and roughly 2× slower than `swinv2`; both are about a second
   per image on a 4080 and a few seconds on CPU.

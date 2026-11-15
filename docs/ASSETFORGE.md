@@ -9,12 +9,16 @@ comfy-forge renders. AssetForge orchestrates. Neither forks, wraps or replaces t
 
 ## What AssetForge does with comfy-forge
 
-Two recipes delegate to this repository:
+These recipes use this repository:
 
 | recipe | what it runs | needs |
 |---|---|---|
 | `comfy-generate` | `TOOLS\image-stack.ps1 generate` | SwarmUI running, models installed |
 | `comfy-import` | reads an existing render into an asset | nothing beyond the file |
+| `audio-music` | `TOOLS\music.py generate` | a ComfyUI backend and ACE-Step weights |
+
+`TOOLS\game-ready.ps1` goes the other way: it hands a generated `.glb` to Asset
+Forge's `mesh-gameready` recipe.
 
 AssetForge only delegates a render and keeps the result inside the asset it is building.
 It never installs models, downloads weights or edits comfy-forge's config.
@@ -44,29 +48,25 @@ powershell -File TOOLS\image-stack.ps1 install
 powershell -File TOOLS\image-stack.ps1 status
 ```
 
-`generate` refuses to run when SwarmUI is not answering on port 7801, so a missing backend
+`generate` refuses to run when SwarmUI is not answering on its port (7801 unless
+`Data\Settings.fds` says otherwise), so a missing backend
 fails fast with that message rather than hanging an AssetForge job.
 
 ## Point AssetForge at this copy
 
-AssetForge looks for comfy-forge in these places (order as configured on the AssetForge
-side; COMFY_KIT_ROOT and `integrations.comfy_kit` are the reliable ones):
+Current AssetForge builds read `COMFY_FORGE_ROOT` (environment variable) or
+`integrations.comfy_forge` in a project's `project.json`. The older names
+`COMFY_KIT_ROOT` and `integrations.comfy_kit` still work; when both variables are
+set, `COMFY_FORGE_ROOT` wins. The repo was renamed `comfy-kit` → `comfy-forge` in
+v0.6.0, so prefer the new names.
 
-1. `COMFY_KIT_ROOT` (environment variable) — still named COMFY_KIT_ROOT in v0.6.0 for AssetForge compatibility,
-2. `integrations.comfy_kit` in its project's `project.json`,
-3. a default `~/comfy-kit` checkout on some AssetForge builds — the repo was renamed, so prefer 1 or 2,
-4. declared roots in its config.
-
-The folder and repo were renamed `comfy-kit` → `comfy-forge` in v0.6.0; AssetForge itself is
-a separate project, so its own default paths are unchanged and may still point at the old
-name. `COMFY_KIT_ROOT` remains the variable AssetForge reads today.
-
-Required markers: `TOOLS/image-stack.ps1` and `presets/presets.json`.
+Required markers: `TOOLS/image-stack.ps1` and `presets/presets.json`; the music
+recipe also needs `TOOLS/music.py` (0.8.0 or later).
 
 The durable option is the environment variable:
 
 ```powershell
-setx COMFY_KIT_ROOT "<path to this comfy-forge folder>"
+setx COMFY_FORGE_ROOT "<path to this comfy-forge folder>"
 ```
 
 Per-project, in AssetForge's `project.json`:
@@ -74,7 +74,7 @@ Per-project, in AssetForge's `project.json`:
 ```json
 {
   "integrations": {
-    "comfy_kit": "<path to this comfy-forge folder>"
+    "comfy_forge": "<path to this comfy-forge folder>"
   }
 }
 ```
@@ -104,7 +104,8 @@ Seeds are reproducible: `--set seed=12345` gives you the same image back.
 
 | Check | Result |
 |---|---|
-| AssetForge delegates a render through `image-stack.ps1 generate` | UNVERIFIED — AssetForge itself has never been run on this machine; SwarmUI/ComfyUI is running and this repo's render path works independently |
+| AssetForge `audio-music` drives `music.py generate` | PASS — run end to end against the real tool through SwarmUI's backend (see [MUSIC.md](MUSIC.md)) |
+| AssetForge delegates a render through `image-stack.ps1 generate` | UNVERIFIED — `comfy-generate` has not been run end to end; this repo's render path works on its own |
 | Markers this repo exposes (`TOOLS/image-stack.ps1`, `presets/presets.json`) | present |
 | `image-stack.ps1 status` / `presets` / `generate -Out` | PASS in this repo's test suite |
 
@@ -120,9 +121,10 @@ An empty or failing render means comfy-forge is the thing to fix — see
 
 ## Exit codes AssetForge sees
 
-comfy-forge's CLI exits 0 on success and 1 on any refusal (no preset, no model, SwarmUI not
-running, nothing to merge). AssetForge surfaces those as recipe failures with the CLI's
-output attached, so `--json` is the way to drive it from a script.
+`image-stack.ps1` exits 0 on success and 1 on any refusal (no preset, no model, SwarmUI not
+running, nothing to merge). `music.py` exits 0 done, 1 failed, 2 bad arguments, 3 no backend,
+and ends with one JSON line listing the files. AssetForge surfaces a nonzero exit as a recipe
+failure with the tool's output attached.
 
 ## Which tool for which job
 

@@ -35,6 +35,12 @@ jobs:
         shell: powershell
         run: ./TESTS/Test-CliSurface.ps1
 
+      - name: MCP config write keeps the rest of the file
+        run: python TESTS/test_mcp_config.py
+
+      - name: Weight installers (root discovery, missing drive, dry run)
+        run: python TESTS/test_installers.py
+
       - name: Merge math
         run: python TESTS/test_merge.py
 
@@ -69,6 +75,9 @@ jobs:
 
       - name: Dataset pipeline (inspect, filters, archive layout, validate, launcher)
         run: python TESTS/test_dataset_pipeline.py
+
+      - name: Dataset regressions (exclude, UTF-16 captions, stale pairs)
+        run: python TESTS/test_dataset_regressions.py
 
       - name: Release identity (VERSION, changelog, STATE)
         shell: powershell

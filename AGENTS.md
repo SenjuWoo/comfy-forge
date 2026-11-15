@@ -63,6 +63,9 @@ Call the Python tool directly, or `TOOLS\dataset.ps1` from PowerShell. Do not ro
 ```text
 python TESTS/test_dataset_prep.py
 python TESTS/test_dataset_pipeline.py
+python TESTS/test_dataset_regressions.py
+python TESTS/test_mcp_config.py       # mcp -Write keeps the rest of an agent config
+python TESTS/test_installers.py       # weight installers: root discovery, missing drive
 python TESTS/test_music.py            # templates vs generator vs installer, stub backend
 python TESTS/integration_music.py     # needs a backend and the weights; exit 3 = unverified
 ```
