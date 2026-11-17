@@ -61,6 +61,8 @@ Run-Check 'merge artifacts'   $py @('TESTS\test_merge_artifacts.py')
 Run-Check 'deps resolver'     $py @('TOOLS\check_deps.py', '--self-test')
 Run-Check 'workflow structure' $py @('TESTS\validate_workflows.py') 3
 Run-Check '3d generation lock' $py @('TESTS\test_3d_generation.py')
+Run-Check '3d tool (model3d)'  $py @('TESTS/test_model3d.py')
+Run-Check 'generate/start/stop' $py @('TESTS/test_generate.py') 3
 Run-Check 'music (ACE-Step)'   $py @('TESTS\test_music.py')
 Run-Check 'music installer'    $py @('TESTS\test_music_install.py')
 Run-Check 'workflow convert'  $py @('TESTS\test_workflow_convert.py')

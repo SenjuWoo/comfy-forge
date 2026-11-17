@@ -14,6 +14,14 @@ powershell -File TOOLS\game-ready.ps1 -Input model.glb
 
 That writes `model-gameready.glb` next to the input. Asset Forge runs Blender. This repo does not decimate.
 
+Straight from a picture or a prompt, in one step:
+
+```powershell
+python TOOLS/model3d.py generate --image sword.png --name sword --game-ready
+```
+
+When the game-ready step fails, the generated `.glb` is kept, the closing JSON line carries `game_ready_error`, and the command exits 1.
+
 The same cap, from Asset Forge:
 
 ```bat

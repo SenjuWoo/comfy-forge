@@ -13,12 +13,34 @@ These recipes use this repository:
 
 | recipe | what it runs | needs |
 |---|---|---|
-| `comfy-generate` | `TOOLS\image-stack.ps1 generate` | SwarmUI running, models installed |
+| `comfy-generate` | `TOOLS\image-stack.ps1 generate` | SwarmUI installed with a checkpoint; it is started when it is down |
 | `comfy-import` | reads an existing render into an asset | nothing beyond the file |
 | `audio-music` | `TOOLS\music.py generate` | a ComfyUI backend and ACE-Step weights |
 
 `TOOLS\game-ready.ps1` goes the other way: it hands a generated `.glb` to Asset
-Forge's `mesh-gameready` recipe.
+Forge's `mesh-gameready` recipe. `python TOOLS/model3d.py generate ... --game-ready`
+does the whole trip: picture (or prompt) to a `.glb` to that recipe.
+
+## The contract
+
+What Asset Forge, or any other caller, can rely on:
+
+| Command | Arguments that stay | Result |
+|---|---|---|
+| `image-stack.ps1 generate` | `-Prompt -Preset -Model -Width -Height -Seed -Count -Steps -Cfg -Out -Port`; newer: `-Negative -InitImage -Creativity -Mask -Lora -Transparent -Tileable -Upscale -Set -Json -NoStart` | images in `-Out`, a `.json` sidecar per image, with `-Json` a closing line `{"files","seed","seeds","model","preset","width","height"}`; exit 0 or 1 |
+| `music.py generate` | `--url --out --timeout --seed` and the prompt flags | closing line `{"variant","seed","seeds","files","takes"}`; exit 0, 1, 2, 3 |
+| `model3d.py generate` | `--image` / `--views` / `--prompt`, `--variant --name --out --seed --game-ready --budget --url --no-start --timeout` | closing line `{"variant","name","files","model","splat","game_ready","game_ready_error","triangles","game_ready_triangles","image"}`; exit 0, 1, 2, 3 |
+| `image-stack.ps1 capabilities` | none | one JSON object: `backend`, `lanes.image|model3d|music|dataset|merge|mcp` each with `ready`, `command`, `fix` |
+| `image-stack.ps1 start` / `stop` | `-Wait <seconds>` | exit 0 when the backend answers / is gone |
+| `image-stack.ps1 python` | none | one line: the interpreter of the stack's ComfyUI |
+
+Rules that hold across them:
+
+- `-Port` (images) and `--url` (music, 3D) name a server the caller runs. comfy-forge then never starts another one, and never sends the job anywhere else.
+- Without them, a backend that is down is started headless and left running; `stop` ends only a backend comfy-forge started. `-NoStart`, `--no-start` or `COMFY_FORGE_NO_AUTOSTART=1` turn that off.
+- A backend started by `start` does not inherit the caller's output pipe, so a caller that captures the command's output gets control back when the command returns.
+- `-Model` may be empty or absent: the preset's model, then one of the preset's family, is used and printed.
+- A raw `.glb` from `model3d.py` is valid glTF (unit normals) before it is handed on.
 
 AssetForge only delegates a render and keeps the result inside the asset it is building.
 It never installs models, downloads weights or edits comfy-forge's config.
@@ -41,16 +63,15 @@ powershell -File TOOLS\image-stack.ps1 status
 # 2. install anything missing (models, node pack, python modules)
 powershell -File TOOLS\image-stack.ps1 install
 
-# 3. start SwarmUI — AssetForge calls the same backend comfy-forge does
-& "<your SwarmUI folder>\launch-windows.bat"
-
-# 4. confirm it answers before handing work to AssetForge
-powershell -File TOOLS\image-stack.ps1 status
+# 3. optional: start SwarmUI now (headless) instead of on the first render
+powershell -File TOOLS\image-stack.ps1 start
 ```
 
-`generate` refuses to run when SwarmUI is not answering on its port (7801 unless
-`Data\Settings.fds` says otherwise), so a missing backend
-fails fast with that message rather than hanging an AssetForge job.
+SwarmUI has to have been launched once by hand (`launch-windows.bat`), so that it has
+built itself and installed its ComfyUI backend. After that `generate` starts it when it
+is not answering (port 7801 unless `Data\Settings.fds` says otherwise); with `-NoStart`
+or `-Port` it refuses at once with a message that names the fix, rather than hanging
+an AssetForge job.
 
 ## Point AssetForge at this copy
 
@@ -96,7 +117,6 @@ Seeds are reproducible: `--set seed=12345` gives you the same image back.
 ## Things AssetForge will not do for you
 
 - Install or download model weights (nothing here happens without you running `install`).
-- Start SwarmUI. If it is not running, the render step fails with comfy-forge's own message.
 - Pick a preset for you. The default is `Anima - Author Daily (Euler + SGM)`; give it a different one with `--set preset="<name>"` (`TOOLS\image-stack.ps1 presets` lists them).
 - Verify quality. It validates the export, not the art — look at the image.
 
@@ -105,7 +125,8 @@ Seeds are reproducible: `--set seed=12345` gives you the same image back.
 | Check | Result |
 |---|---|
 | AssetForge `audio-music` drives `music.py generate` | PASS — run end to end against the real tool through SwarmUI's backend (see [MUSIC.md](MUSIC.md)) |
-| AssetForge delegates a render through `image-stack.ps1 generate` | UNVERIFIED — `comfy-generate` has not been run end to end; this repo's render path works on its own |
+| AssetForge delegates a render through `image-stack.ps1 generate` | PASS (0.11.0) — `comfy-generate` run end to end: detect, generate through the running SwarmUI, thumbnail, record; job SUCCEEDED |
+| `model3d.py --game-ready` hands a generated `.glb` to `mesh-gameready` | PASS on a Pixal3D chest (699,350 → 17,000 triangles, 1024 textures). One axe mesh failed Asset Forge's own glTF validation of its output (zero tangents after decimation); reported to Asset Forge |
 | Markers this repo exposes (`TOOLS/image-stack.ps1`, `presets/presets.json`) | present |
 | `image-stack.ps1 status` / `presets` / `generate -Out` | PASS in this repo's test suite |
 

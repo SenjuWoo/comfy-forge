@@ -15,10 +15,27 @@
 
   Verbs:
     status                        what is installed, running, and available
+    capabilities                  the same as one JSON object: every lane (image, music,
+                                 3D, dataset, merge, MCP), whether it is ready, and the
+                                 command that runs it or fixes it
+    start [-Wait <seconds>]       start SwarmUI headless (no window, no browser) and wait
+                                 for its API and its ComfyUI backend; standalone ComfyUI
+                                 when there is no SwarmUI
+    stop [-Force]                 stop the backend `start` launched; one you started
+                                 yourself is left alone, and one that is rendering is
+                                 not stopped unless -Force is given
     install [-IncludeOptional]    fetch everything missing: models, node pack, deps
     presets [-Name <preset>]      list presets, or show one preset's settings
-    generate -Prompt <text> [-Preset <name>] [-Model <name>]
-                                 1024x1024 render through SwarmUI's API
+    generate -Prompt <text> [-Preset <name>] [-Model <name>] [-Negative <text>]
+             [-Width n -Height n] [-Seed n] [-Count n] [-Steps n] [-Cfg n] [-Out <dir>]
+             [-InitImage <file> [-Creativity 0..1] [-Mask <file>]]   image to image, inpaint
+             [-Lora name[:weight],...] [-Transparent] [-Tileable] [-Upscale 1.5]
+             [-Set key=value,...] [-Json] [-NoStart]
+                                 render through SwarmUI's API. The backend is started
+                                 when it is down (-NoStart refuses instead). Without
+                                 -Model the preset's model is used, else one SwarmUI has
+                                 for that preset's family. Every image gets a .json
+                                 sidecar; -Json ends the output with one JSON line.
     merge -Donors a,b [-Weights 0.85,0.75] [-Out <file>] [-Scale 1.0]
                                  4-way Anima checkpoint merge to a real file
     mcp [-Write -Agent <claude|path>]
@@ -27,10 +44,12 @@
     python                        print the interpreter this stack uses (the one
                                  that has torch); exit 1 when none is found
 
-  Dataset preparation is its own tool, TOOLS\dataset.ps1, because its arguments
-  (--out, --mode, --force) would collide with the parameters of this script.
-  Music generation (ACE-Step 1.5) is TOOLS\music.ps1 for the same reason; its weights
-  come from TOOLS\Install-MusicModels.ps1, and `status` reports which variants are ready.
+  Sibling tools (their arguments would collide with the parameters of this script):
+    TOOLS\model3d.ps1     image or text to a 3D model (.glb), optionally game-ready
+    TOOLS\music.ps1       songs and instrumentals (ACE-Step 1.5)
+    TOOLS\dataset.ps1     tagged image folder to a training archive
+    TOOLS\game-ready.ps1  a generated .glb to a mesh under the triangle budget (Asset Forge)
+  Weights: TOOLS\Install-3DModels.ps1 and TOOLS\Install-MusicModels.ps1, both opt-in.
 
 .EXAMPLE
   powershell -File TOOLS\image-stack.ps1 status
@@ -40,12 +59,26 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('status', 'install', 'presets', 'generate', 'merge', 'mcp', 'python', 'help')]
+  [ValidateSet('status', 'capabilities', 'start', 'stop', 'install', 'presets', 'generate', 'merge', 'mcp', 'python', 'help')]
   [string]$Verb = 'status',
 
   [string]$Preset = 'Anima - Author Daily (Euler + SGM)',
   [string]$Prompt = 'a weathered stone lighthouse on a basalt cliff at dawn, sea spray, volumetric light, cinematic',
-  [string]$Model = 'Anima/Anima-2.9B-preview-v1.safetensors',
+  # Empty means "choose": the preset's own model, else one SwarmUI lists for the
+  # preset's family. A fixed default named a file many installs do not have.
+  [string]$Model = '',
+  [string]$Negative = '',
+  [string]$InitImage = '',
+  [double]$Creativity = -1,
+  [string]$Mask = '',
+  [string[]]$Lora = @(),
+  [switch]$Transparent,
+  [switch]$Tileable,
+  [double]$Upscale = 0,
+  [string[]]$Set = @(),
+  [switch]$Json,
+  [switch]$NoStart,
+  [int]$Wait = 300,
   [int]$Width = 1024,
   [int]$Height = 1024,
   [int]$Steps = 0,
@@ -67,18 +100,41 @@ param(
   [switch]$Write,
   [switch]$NoMirror,
   [string]$Agent = 'hermes',
-  [int]$Port = 0
+  [int]$Port = 0,
+  # `comfy-forge --help` arrives here as a parameter named "-help".
+  [Alias('-help', 'h')]
+  [switch]$Help
 )
 
 $ErrorActionPreference = 'Stop'
+$BoundParams = $PSBoundParameters                 # inside a function that name means the function's own
 $Root = Split-Path -Parent $PSScriptRoot          # repo root (this file lives in TOOLS\)
 . (Join-Path $PSScriptRoot 'mirror-lib.ps1')      # hard-link/copy primitives
 . (Join-Path $PSScriptRoot 'node-pack-lib.ps1')   # node-pack state + clone guard
 # Standalone by default; a record left by the old bundle path is still honoured.
-$StatePath = Join-Path $env:LOCALAPPDATA 'comfy-kit\anima-swarmui.json'
-if (-not (Test-Path -LiteralPath $StatePath)) {
+# COMFY_FORGE_STATE_DIR moves the whole state folder (install record, backend
+# record, logs); the tests use it so they never read or write the real one.
+$StateDir = if ($env:COMFY_FORGE_STATE_DIR) { $env:COMFY_FORGE_STATE_DIR } else { Join-Path $env:LOCALAPPDATA 'comfy-kit' }
+$StatePath = Join-Path $StateDir 'anima-swarmui.json'
+if (-not $env:COMFY_FORGE_STATE_DIR -and -not (Test-Path -LiteralPath $StatePath)) {
   $legacyState = Join-Path $env:LOCALAPPDATA 'Ultimate-AI-Starter-Bundle\anima-swarmui.json'
   if (Test-Path -LiteralPath $legacyState) { $StatePath = $legacyState }
+}
+$BackendStatePath = Join-Path $StateDir 'backend.json'
+
+function Invoke-Native([string]$Exe, [object[]]$Arguments) {
+  # Run a program whose stderr is expected and return @{ Code; Text }. Under
+  # ErrorActionPreference 'Stop', Windows PowerShell 5.1 turns a redirected stderr
+  # line into a terminating error, so `& python -c "import torch" 2>$null` ended
+  # `status` with a traceback on any Python without torch instead of reporting it.
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $text = (& $Exe @Arguments 2>&1 | Out-String)
+    return @{ Code = [int]$LASTEXITCODE; Text = $text.Trim() }
+  }
+  catch { return @{ Code = 1; Text = "$_" } }
+  finally { $ErrorActionPreference = $prev }
 }
 
 function Say($Message) { Write-Host $Message }
@@ -137,8 +193,29 @@ function Get-ComfyRoot {
   return $null
 }
 
-# SwarmUI's web port comes from its own settings file, not a guess.
+function Read-BackendRecord {
+  # The backend `start` launched, or $null. A record whose process is gone, or
+  # whose pid now belongs to a different process, is stale and is removed, so
+  # `stop` can never end something this tool did not start.
+  if (-not (Test-Path -LiteralPath $BackendStatePath)) { return $null }
+  $rec = $null
+  try { $rec = Get-Content -LiteralPath $BackendStatePath -Raw | ConvertFrom-Json } catch { }
+  if ($rec -and $rec.pid -and $rec.started) {
+    try {
+      $proc = Get-Process -Id ([int]$rec.pid) -ErrorAction Stop
+      if ($proc.StartTime.ToUniversalTime().Ticks -eq [int64]$rec.started) { return $rec }
+    }
+    catch { }
+  }
+  Remove-Item -LiteralPath $BackendStatePath -Force -ErrorAction SilentlyContinue
+  return $null
+}
+
+# SwarmUI's web port comes from its own settings file, not a guess. A SwarmUI this
+# tool started may have moved to the next free port; its record says which.
 function Get-SwarmPort {
+  $rec = Read-BackendRecord
+  if ($rec -and $rec.kind -eq 'SwarmUI' -and $rec.port) { return [int]$rec.port }
   $swarm = Get-SwarmRoot
   if (-not $swarm) { return 7801 }
   $settings = Join-Path $swarm 'Data\Settings.fds'
@@ -194,7 +271,7 @@ function Get-ComfyUIPort {
   if ($null -ne $script:ComfyUIPortCache) { return $script:ComfyUIPortCache }
   $found = 0
   # An open socket is not a ComfyUI: only a port that answers /system_stats counts.
-  foreach ($p in (Get-OpenLocalPorts (@(8188) + (7820..7832)))) {
+  foreach ($p in (Get-OpenLocalPorts (Get-ProbePorts))) {
     try {
       $r = Invoke-RestMethod -Uri "http://127.0.0.1:$p/system_stats" -TimeoutSec 5 -UseBasicParsing
       if ($r.system) { $found = $p; break }
@@ -203,6 +280,231 @@ function Get-ComfyUIPort {
   }
   $script:ComfyUIPortCache = $found
   return $found
+}
+
+function Get-ProbePorts {
+  # 8188 is a standalone ComfyUI, 7820-7832 SwarmUI's backend. The tests narrow
+  # the search with the variable TOOLS\music.py and TOOLS\model3d.py also read.
+  if ($env:COMFY_FORGE_PROBE_PORTS) {
+    return , @($env:COMFY_FORGE_PROBE_PORTS -split ',' | Where-Object { $_.Trim() } | ForEach-Object { [int]$_ })
+  }
+  return , (@(8188) + (7820..7832))
+}
+
+# ---------------------------------------------------------------------------
+# SwarmUI API. Requests and replies are UTF-8 on the wire: Windows PowerShell 5.1
+# sends a string body as ISO-8859-1 and decodes a reply the same way, which turned
+# every non-Latin character of a prompt into "?" and broke the path of any image
+# SwarmUI named after that prompt.
+# ---------------------------------------------------------------------------
+function Invoke-SwarmApi([int]$P, [string]$Route, [hashtable]$Body, [int]$TimeoutSec = 60) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes(($Body | ConvertTo-Json -Depth 8 -Compress))
+  $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$P/API/$Route" -Method Post `
+    -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec $TimeoutSec -UseBasicParsing
+  return ([Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray()) | ConvertFrom-Json)
+}
+
+function Get-SwarmBackendState([int]$P) {
+  # 'running' once SwarmUI's ComfyUI backend has loaded; 'loading' before that.
+  try {
+    $r = Invoke-SwarmApi $P 'GetCurrentStatus' @{ session_id = (New-SwarmSession $P) } 10
+    return [string]$r.backend_status.status
+  }
+  catch { return '' }
+}
+
+# ---------------------------------------------------------------------------
+# Backend lifecycle. An agent cannot click launch-windows.bat, and SwarmUI's
+# normal launch opens a browser. `start` runs the same launcher with
+# --launch_mode none, hidden, and waits until a render would actually work.
+# ---------------------------------------------------------------------------
+function New-BackendLog {
+  $dir = Join-Path $StateDir 'logs'
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  # Keep the last few runs; a log per start would otherwise grow without bound.
+  @(Get-ChildItem -LiteralPath $dir -Filter 'backend-*.log*' -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -Skip 10) |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+  return (Join-Path $dir ("backend-{0}-{1}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $PID))
+}
+
+function Get-LogTail([string]$Path, [int]$Lines = 12) {
+  if (-not (Test-Path -LiteralPath $Path)) { return '' }
+  return (@(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue) -join "`n")
+}
+
+function Start-HiddenProcess([string]$CommandLine, [string]$WorkDir, [string]$Log) {
+  # The backend outlives this command, so it must not hold this command's output.
+  # Start-Process with -Redirect* lets the child inherit every open handle, the
+  # caller's stdout pipe included: a program that captures `image-stack.ps1 start`
+  # (an agent, Asset Forge, a test) then waits for that pipe until the backend
+  # exits. Without -Redirect* the process is created through the shell and inherits
+  # nothing; cmd.exe does the redirection itself.
+  # stdin is NUL: the launcher ends in `pause` when SwarmUI fails, and a hidden
+  # window waiting for a key would never report that failure.
+  $line = '/d /s /c "{0} > "{1}" 2>&1 < NUL"' -f $CommandLine, $Log
+  return (Start-Process -FilePath $env:ComSpec -ArgumentList $line -WorkingDirectory $WorkDir -WindowStyle Hidden -PassThru)
+}
+
+function Save-BackendRecord([string]$Kind, $Proc, [int]$BackendPort, [string]$BackendRoot, [string]$Log) {
+  $rec = [ordered]@{
+    kind = $Kind; pid = $Proc.Id; started = $Proc.StartTime.ToUniversalTime().Ticks
+    port = $BackendPort; root = $BackendRoot; log = $Log
+    since = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  }
+  New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+  [IO.File]::WriteAllText($BackendStatePath, ($rec | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+}
+
+function Start-Backend {
+  # Idempotent: a backend that already answers is used as it is, whoever started it.
+  $swarm = Get-SwarmRoot
+  if ($swarm) {
+    $port = if ($Port) { $Port } else { Get-SwarmPort }
+    if (Test-SwarmUp $port) {
+      if ((Get-SwarmBackendState $port) -ne 'running') { Wait-SwarmBackend $port $null '' }
+      Ok "SwarmUI is already answering on http://127.0.0.1:$port"
+      return
+    }
+    $launcher = Join-Path $swarm 'launch-windows.bat'
+    if (-not (Test-Path -LiteralPath $launcher)) { Fail "missing $launcher" }
+    $log = New-BackendLog
+    Note "starting SwarmUI headless from $swarm (log: $log)"
+    # The launcher is named by its full path: with NoDefaultCurrentDirectoryInExePath
+    # set, cmd.exe does not look in the working directory for a bare name.
+    $proc = Start-HiddenProcess ('"{0}" --launch_mode none' -f $launcher) $swarm $log
+    $deadline = (Get-Date).AddSeconds($Wait)
+    $webPort = 0
+    while ((Get-Date) -lt $deadline) {
+      if ($proc.HasExited) {
+        Fail ("SwarmUI exited during startup (code {0}). Log: {1}`n{2}" -f $proc.ExitCode, $log, (Get-LogTail $log))
+      }
+      # SwarmUI takes the next port when its own is busy, and says so in the log.
+      $candidate = $port
+      $line = Select-String -LiteralPath $log -Pattern 'Starting webserver on https?://[^:\s]+:(\d+)' -ErrorAction SilentlyContinue | Select-Object -Last 1
+      if ($line) { $candidate = [int]$line.Matches[0].Groups[1].Value }
+      if (Test-SwarmUp $candidate) { $webPort = $candidate; break }
+      Start-Sleep -Milliseconds 700
+    }
+    if (-not $webPort) {
+      $null = Invoke-Native 'taskkill' @('/PID', $proc.Id, '/T', '/F')
+      Fail ("SwarmUI did not answer within {0}s; it was stopped again. Log: {1}`n{2}" -f $Wait, $log, (Get-LogTail $log))
+    }
+    Save-BackendRecord 'SwarmUI' $proc $webPort $swarm $log
+    Wait-SwarmBackend $webPort $proc $log $deadline
+    Ok "SwarmUI is up on http://127.0.0.1:$webPort (headless; stop it with: image-stack.ps1 stop)"
+    return
+  }
+
+  $script:ComfyUIPortCache = $null
+  $cp = Get-ComfyUIPort
+  if ($cp) { Ok "ComfyUI is already answering on http://127.0.0.1:$cp"; return }
+  $comfy = Get-ComfyRoot
+  if (-not $comfy) { Fail 'no SwarmUI or ComfyUI install found, so there is nothing to start; see: image-stack.ps1 install' }
+  $py = Find-Python
+  if (-not $py) { Fail "no python interpreter was found for $comfy" }
+  $busy = Get-OpenLocalPorts (Get-ProbePorts)
+  $free = 0
+  foreach ($candidate in (Get-ProbePorts)) { if ($busy -notcontains $candidate) { $free = [int]$candidate; break } }
+  if (-not $free) { Fail 'every port ComfyUI is looked for on (8188, 7820-7832) is taken by something else' }
+  $log = New-BackendLog
+  Note "starting ComfyUI headless from $comfy on port $free (log: $log)"
+  $proc = Start-HiddenProcess ('"{0}" -s main.py --listen 127.0.0.1 --port {1} --disable-auto-launch' -f $py, $free) $comfy $log
+  Save-BackendRecord 'ComfyUI' $proc $free $comfy $log
+  $deadline = (Get-Date).AddSeconds($Wait)
+  while ((Get-Date) -lt $deadline) {
+    if ($proc.HasExited) {
+      Remove-Item -LiteralPath $BackendStatePath -Force -ErrorAction SilentlyContinue
+      Fail ("ComfyUI exited during startup (code {0}). Log: {1}`n{2}" -f $proc.ExitCode, $log, (Get-LogTail $log))
+    }
+    $script:ComfyUIPortCache = $null
+    if ((Get-ComfyUIPort) -eq $free) {
+      Ok "ComfyUI is up on http://127.0.0.1:$free (headless; stop it with: image-stack.ps1 stop)"
+      return
+    }
+    Start-Sleep -Milliseconds 700
+  }
+  $null = Invoke-Native 'taskkill' @('/PID', $proc.Id, '/T', '/F')
+  Remove-Item -LiteralPath $BackendStatePath -Force -ErrorAction SilentlyContinue
+  Fail ("ComfyUI did not answer within {0}s; it was stopped again. Log: {1}`n{2}" -f $Wait, $log, (Get-LogTail $log))
+}
+
+function Wait-SwarmBackend([int]$P, $Proc, [string]$Log, $Deadline) {
+  # The web server answers within seconds; the ComfyUI behind it takes most of a
+  # minute, and a render sent before then is refused.
+  if (-not $Deadline) { $Deadline = (Get-Date).AddSeconds($Wait) }
+  $said = $false
+  $badSince = $null
+  while ((Get-Date) -lt $Deadline) {
+    $state = Get-SwarmBackendState $P
+    if ($state -eq 'running') { $script:ComfyUIPortCache = $null; return }
+    if ($state -in @('errored', 'disabled', 'empty')) {
+      # SwarmUI restarts a backend that failed to come up, so one bad reading is
+      # not a verdict; fifteen seconds of it is.
+      if (-not $badSince) { $badSince = Get-Date }
+      if (((Get-Date) - $badSince).TotalSeconds -ge 15) {
+        Fail ("SwarmUI is up on port {0} but its backend is '{1}'. {2}" -f $P, $state, $(if ($Log) { "Log: $Log`n" + (Get-LogTail $Log) } else { 'Open its Server > Backends tab.' }))
+      }
+    }
+    else { $badSince = $null }
+    if ($Proc -and $Proc.HasExited) { Fail ("SwarmUI exited while its backend was loading (code {0}). Log: {1}`n{2}" -f $Proc.ExitCode, $Log, (Get-LogTail $Log)) }
+    if (-not $said) { Note 'waiting for the ComfyUI backend to load'; $said = $true }
+    Start-Sleep -Milliseconds 1000
+  }
+  Fail ("SwarmUI's backend was still loading after {0}s{1}" -f $Wait, $(if ($Log) { ". Log: $Log" } else { '' }))
+}
+
+function Get-BackendJobCount($Rec) {
+  # Jobs in flight: SwarmUI's own renders, plus whatever is queued on the ComfyUI
+  # behind it (music and 3D go there directly, and SwarmUI does not count them).
+  $count = 0
+  if ($Rec.kind -eq 'SwarmUI') {
+    try {
+      $r = Invoke-SwarmApi ([int]$Rec.port) 'GetCurrentStatus' @{ session_id = (New-SwarmSession ([int]$Rec.port)) } 10
+      $count += [int]$r.status.waiting_gens + [int]$r.status.live_gens
+    }
+    catch { }
+  }
+  $script:ComfyUIPortCache = $null
+  $cp = Get-ComfyUIPort
+  if ($cp) {
+    try {
+      $q = Invoke-RestMethod -Uri "http://127.0.0.1:$cp/queue" -TimeoutSec 10 -UseBasicParsing
+      $count = [Math]::Max($count, @($q.queue_running).Count + @($q.queue_pending).Count)
+    }
+    catch { }
+  }
+  return $count
+}
+
+function Stop-Backend {
+  $rec = Read-BackendRecord
+  if (-not $rec) {
+    Ok 'nothing to stop: no backend started by comfy-forge is running (one you started yourself is left alone)'
+    return
+  }
+  if (-not $Force) {
+    # Another tool may be rendering on this backend right now (Asset Forge uses a
+    # running SwarmUI as it finds it); ending it would fail that job.
+    $busy = Get-BackendJobCount $rec
+    if ($busy -gt 0) {
+      Fail "the backend is working on $busy job(s); wait for them to finish, or stop it anyway with: image-stack.ps1 stop -Force"
+    }
+  }
+  $proc = Get-Process -Id ([int]$rec.pid) -ErrorAction SilentlyContinue
+  if ($rec.kind -eq 'SwarmUI' -and (Test-SwarmUp ([int]$rec.port))) {
+    # Ask first, so SwarmUI saves its state and ends its own ComfyUI.
+    try { $null = Invoke-SwarmApi ([int]$rec.port) 'ShutdownServer' @{ session_id = (New-SwarmSession ([int]$rec.port)) } 10 } catch { }
+    if ($proc) { $null = $proc.WaitForExit(20000) }
+  }
+  $proc = Get-Process -Id ([int]$rec.pid) -ErrorAction SilentlyContinue
+  if ($proc) {
+    $null = Invoke-Native 'taskkill' @('/PID', $rec.pid, '/T', '/F')
+    $null = $proc.WaitForExit(15000)
+  }
+  Remove-Item -LiteralPath $BackendStatePath -Force -ErrorAction SilentlyContinue
+  $script:ComfyUIPortCache = $null
+  Ok ("stopped the {0} that comfy-forge started (pid {1})" -f $rec.kind, $rec.pid)
 }
 
 function Find-Python {
@@ -278,45 +580,178 @@ function Show-Status {
   }
 
   $port = if ($Port) { $Port } else { Get-SwarmPort }
-  if (Test-SwarmUp $port) { Ok "server   SwarmUI answering on http://127.0.0.1:$port" }
-  else {
-    $launcher = if ($swarm) { Join-Path $swarm 'launch-windows.bat' } else { '<SwarmUI>\launch-windows.bat' }
-    Note ("server   SwarmUI is not running - start it with {0}" -f $launcher)
-  }
+  $rec = Read-BackendRecord
+  $owner = if ($rec) { ' (started by comfy-forge; `image-stack.ps1 stop` ends it)' } else { '' }
+  if (Test-SwarmUp $port) { Ok "server   SwarmUI answering on http://127.0.0.1:$port$owner" }
+  elseif ($swarm) { Note 'server   SwarmUI is not running - `image-stack.ps1 start` starts it headless (generate does that itself)' }
+  else { Note 'server   SwarmUI is not running - start it with <SwarmUI>\launch-windows.bat' }
 
   $cp = Get-ComfyUIPort
-  if ($cp) { Ok "comfyui  ComfyUI API on port $cp (MCP target)" } else { Note 'comfyui  no ComfyUI API port answered' }
+  if ($cp) { Ok "comfyui  ComfyUI API on port $cp (MCP, music and 3D target)" } else { Note 'comfyui  no ComfyUI API port answered' }
 
   Show-Requirements
   Show-Music
+  Show-3D
 }
 
-# Music (ACE-Step 1.5): read-only. Which variants have every file on disk. The file
-# list comes from TOOLS\music.py so there is one table, not two.
-function Show-Music {
+# Music (ACE-Step 1.5) and 3D (Pixal3D, TRELLIS.2, Idol): read-only. Which variants
+# have every file on disk. The file lists come from TOOLS\music.py and
+# TOOLS\model3d.py, so there is one table per lane, not two.
+function Get-VariantReadiness([string]$Script) {
+  # @{ Ready = names; Missing = @{ name = files } }, or $null when it cannot be told.
   $py = Find-Python
-  if (-not $py) { return }
+  if (-not $py) { return $null }
   $roots = @()
   $swarm = Get-SwarmRoot
   if ($swarm) { $roots += (Join-Path $swarm 'dlbackend\comfy\ComfyUI') }
   $comfy = Get-ComfyRoot
   if ($comfy) { $roots += $comfy }
   $roots = @($roots | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'models') })
-  if (-not $roots.Count) { return }
-  try { $table = (& $py (Join-Path $PSScriptRoot 'music.py') variants --json) -join "`n" | ConvertFrom-Json }
-  catch { Note 'music    could not read TOOLS\music.py variants'; return }
-  $ready = @()
+  if (-not $roots.Count) { return $null }
+  try { $table = (& $py (Join-Path $PSScriptRoot $Script) variants --json) -join "`n" | ConvertFrom-Json }
+  catch { return $null }
+  if (-not $table) { return $null }
+  $ready = @(); $missing = [ordered]@{}
   foreach ($variant in $table.PSObject.Properties) {
-    $all = $true
+    $absent = @()
     foreach ($f in @($variant.Value.files)) {
       $found = $false
       foreach ($r in $roots) { if (Test-Path -LiteralPath (Join-Path $r (Join-Path 'models' (Join-Path $f[0] $f[1])))) { $found = $true; break } }
-      if (-not $found) { $all = $false; break }
+      if (-not $found) { $absent += ("{0}/{1}" -f $f[0], $f[1]) }
     }
-    if ($all) { $ready += $variant.Name }
+    if ($absent.Count) { $missing[$variant.Name] = $absent } else { $ready += $variant.Name }
   }
-  if ($ready.Count) { Ok ("music    ACE-Step 1.5 ready: {0}" -f ($ready -join ', ')) }
+  return @{ Ready = $ready; Missing = $missing }
+}
+
+function Show-Music {
+  $state = Get-VariantReadiness 'music.py'
+  if (-not $state) { return }
+  if ($state.Ready.Count) { Ok ("music    ACE-Step 1.5 ready: {0}  (TOOLS\music.ps1)" -f ($state.Ready -join ', ')) }
   else { Note 'music    ACE-Step 1.5 weights not installed (TOOLS\Install-MusicModels.ps1 -WhatIf shows the list)' }
+}
+
+function Show-3D {
+  $state = Get-VariantReadiness 'model3d.py'
+  if (-not $state) { return }
+  if ($state.Ready.Count) { Ok ("3d       image to 3D ready: {0}  (TOOLS\model3d.ps1)" -f ($state.Ready -join ', ')) }
+  else { Note '3d       image-to-3D weights not installed (TOOLS\Install-3DModels.ps1 -WhatIf shows the list)' }
+}
+
+function Resolve-AssetForgeRoot {
+  # The same two places TOOLS\game-ready.ps1 looks; $null instead of an error.
+  $candidates = @($env:ASSETFORGE_ROOT, (Join-Path (Split-Path -Parent $Root) 'Asset-Forge'))
+  foreach ($c in $candidates) {
+    if (-not $c) { continue }
+    try {
+      if (Test-Path -LiteralPath ([IO.Path]::Combine($c, 'src', 'assetforge', 'data', 'recipes', 'mesh-gameready.json'))) {
+        return (Resolve-Path -LiteralPath $c).Path
+      }
+    }
+    catch { }
+  }
+  return $null
+}
+
+# Everything `status` says, as one JSON object an agent can read: each lane, whether
+# it is ready, the command that runs it and the command that fixes what is missing.
+function Show-Capabilities {
+  $swarm = Get-SwarmRoot
+  $comfy = Get-ComfyRoot
+  $port = if ($Port) { $Port } else { Get-SwarmPort }
+  $swarmUp = [bool]($swarm -and (Test-SwarmUp $port))
+  $cp = Get-ComfyUIPort
+  $rec = Read-BackendRecord
+  $py = Find-Python
+  $ps = 'powershell -NoProfile -ExecutionPolicy Bypass -File'
+  $tool = { param($name) '{0} "{1}"' -f $ps, (Join-Path $PSScriptRoot $name) }
+  $cli = & $tool 'image-stack.ps1'
+  $pyTool = { param($name) 'python "{0}"' -f (Join-Path $PSScriptRoot $name) }
+
+  $checkpoints = @()
+  if ($swarm) {
+    $modelDir = Join-Path $swarm 'Models\Stable-Diffusion'
+    $checkpoints = @(Get-ChildItem -LiteralPath $modelDir -Recurse -Filter '*.safetensors' -ErrorAction SilentlyContinue |
+      ForEach-Object { $_.FullName.Substring($modelDir.Length + 1) -replace '\\', '/' })
+  }
+  $presets = Read-Presets
+  $music = Get-VariantReadiness 'music.py'
+  $model3d = Get-VariantReadiness 'model3d.py'
+  # Typed, so one ready variant is still a list in the JSON and not a bare string.
+  [string[]]$musicReady = @(); if ($music) { $musicReady = @($music.Ready) }
+  [string[]]$model3dReady = @(); if ($model3d) { $model3dReady = @($model3d.Ready) }
+  [string[]]$checkpoints = @($checkpoints)
+  $forge = Resolve-AssetForgeRoot
+  $node = (Test-CommandExists 'node') -and (Test-CommandExists 'npx')
+
+  $report = [ordered]@{
+    tool    = 'comfy-forge'
+    version = (Get-Content -LiteralPath (Join-Path $Root 'VERSION') -Raw).Trim()
+    root    = $Root
+    backend = [ordered]@{
+      swarmui                = [ordered]@{ root = $swarm; running = $swarmUp; url = $(if ($swarmUp) { "http://127.0.0.1:$port" } else { $null }) }
+      comfyui                = [ordered]@{ root = $comfy; running = [bool]$cp; url = $(if ($cp) { "http://127.0.0.1:$cp" } else { $null }) }
+      started_by_comfy_forge = [bool]$rec
+      log                    = $(if ($rec) { $rec.log } else { $null })
+      start                  = "$cli start"
+      stop                   = "$cli stop"
+      note                   = 'generate, model3d and music start the backend themselves when none answers; stop ends only a backend comfy-forge started'
+    }
+    lanes   = [ordered]@{
+      image   = [ordered]@{
+        ready       = [bool]($swarm -and $checkpoints.Count)
+        command     = "$cli generate -Prompt ""<text>"" -Out <folder> -Json"
+        does        = @('text to image', 'image to image (-InitImage, -Creativity)', 'inpaint (-Mask)', 'LoRA (-Lora name:weight)',
+          'transparent background (-Transparent)', 'tileable texture (-Tileable, UNet models)', 'upscale pass (-Upscale)',
+          'any other SwarmUI parameter (-Set key=value)')
+        presets     = @($presets.PSObject.Properties).Count
+        list_presets = "$cli presets"
+        checkpoints = $checkpoints
+        fix         = $(if (-not $swarm) { 'install SwarmUI and run its launch-windows.bat once, then: ' + "$cli install" } elseif (-not $checkpoints.Count) { "$cli install" } else { $null })
+      }
+      model3d = [ordered]@{
+        ready      = [bool]($model3d -and $model3d.Ready.Count)
+        command    = (& $pyTool 'model3d.py') + ' generate --image <file> --name <name> --out <folder> --game-ready'
+        from_text  = (& $pyTool 'model3d.py') + ' generate --prompt "<object>" --name <name> --out <folder> --game-ready'
+        does       = @('one image to a textured PBR .glb (pixal3d)', 'turnaround sheet or 1-4 views to a .glb (pixal3d-multi)',
+          'text to image to .glb (--prompt)', 'game-ready mesh at or under 20,000 triangles (--game-ready, Asset Forge)',
+          'Gaussian splat preview (idol)')
+        variants_ready   = $model3dReady
+        variants_missing = $(if ($model3d) { $model3d.Missing } else { $null })
+        game_ready = [ordered]@{ available = [bool]$forge; asset_forge = $forge; fix = $(if ($forge) { $null } else { 'install Asset Forge beside this folder, or set ASSETFORGE_ROOT' }) }
+        fix        = $(if ($model3d -and $model3d.Ready.Count) { $null } else { (& $tool 'Install-3DModels.ps1') + ' -WhatIf   (lists the downloads; then -Set pixal3d)' })
+      }
+      music   = [ordered]@{
+        ready            = [bool]($music -and $music.Ready.Count)
+        command          = (& $pyTool 'music.py') + ' generate --tags "<style>" --instrumental --duration 60 --out <folder>'
+        does             = @('song with lyrics', 'instrumental', 'replay or vary a take (--from, --reseed)')
+        variants_ready   = $musicReady
+        variants_missing = $(if ($music) { $music.Missing } else { $null })
+        fix              = $(if ($music -and $music.Ready.Count) { $null } else { (& $tool 'Install-MusicModels.ps1') + ' -WhatIf   (lists the downloads; then -Set aio)' })
+      }
+      dataset = [ordered]@{
+        ready   = $true
+        command = (& $pyTool 'anima_dataset.py') + ' inspect --images <folder> --json'
+        does    = @('tagged image folder to a verified LoRA training archive (no training, no upload)')
+      }
+      merge   = [ordered]@{
+        ready   = [bool](Test-PythonDeps $py)
+        command = "$cli merge -Donors ""a.safetensors"",""b.safetensors"" -Weights 0.6,0.4"
+        does    = @('task-arithmetic merge of up to four checkpoints into one loadable file')
+        fix     = $(if (Test-PythonDeps $py) { $null } else { "$cli install" })
+      }
+      mcp     = [ordered]@{
+        ready   = [bool]$node
+        command = "$cli mcp -Write -Agent claude"
+        does    = @('ComfyUI MCP server config pointed at the backend port that is answering')
+        fix     = $(if ($node) { $null } else { 'install Node.js 18 or newer' })
+      }
+    }
+    not_covered = @('training', 'uploads', 'sound effects and voice (Asset Forge: audio-sfx, audio-voice)', 'rigging and animation',
+      'video generation')
+  }
+  $json = $report | ConvertTo-Json -Depth 8
+  Write-Output ([regex]::Replace($json, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value }))
 }
 
 # ---------------------------------------------------------------------------
@@ -515,8 +950,7 @@ function Test-NodePack([string]$Name) {
 
 function Test-PythonDeps([string]$Python) {
   if (-not $Python) { return $false }
-  & $Python -c "import torch, safetensors, numpy" 2>$null | Out-Null
-  return ($LASTEXITCODE -eq 0)
+  return ((Invoke-Native $Python @('-c', 'import torch, safetensors, numpy')).Code -eq 0)
 }
 
 function Test-CommandExists([string]$Name) {
@@ -566,8 +1000,7 @@ function Install-MissingRequirements {
   if ($py -and (Test-Path -LiteralPath $py)) {
     $missing = @()
     foreach ($mod in @('torch', 'safetensors', 'numpy')) {
-      & $py -c "import $mod" 2>$null | Out-Null
-      if ($LASTEXITCODE -ne 0) { $missing += $mod }
+      if ((Invoke-Native $py @('-c', "import $mod")).Code -ne 0) { $missing += $mod }
     }
     if ($missing -contains 'torch') {
       Write-Host 'note       torch is missing from the ComfyUI python; install ComfyUI/its requirements first' -ForegroundColor Yellow
@@ -618,36 +1051,34 @@ function Install-MissingRequirements {
         $cloneFailures++
         continue
       }
-      if ($LASTEXITCODE -eq 0) {
-        $lock = Get-DependencyLock
-        $pin = $null
-        if ($lock) { $pin = @($lock.node_packs | Where-Object { $_.name -eq $pack.Name })[0] }
-        if ($pin -and $pin.sha) {
-          & git -C $dest checkout --quiet $pin.sha 2>$null
-          $head = (& git -C $dest rev-parse HEAD 2>$null | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0 -or $head -ne $pin.sha) {
-            # A failed checkout is a failed install; reporting success here is
-            # how an unreachable pin looked fine for a whole release.
-            Write-Host ("error      {0}: could not check out {1} (HEAD is {2})" -f $pack.Name, $pin.sha, $head) -ForegroundColor Red
-            $cloneFailures++
-            continue
-          }
-          # Verify by state, not by the commands having returned 0: a stray
-          # .git or a foreign origin must not read as installed.
-          $state = Get-NodePackState $dir $pin
-          if ($state.State -eq 'locked' -or $state.State -eq 'dirty') {
-            Ok ("node pack -> {0} @ {1}" -f $dest, $pin.sha.Substring(0, 7))
-          } else {
-            Write-Host ("error      {0}: checkout verification says '{1}'" -f $pack.Name, $state.State) -ForegroundColor Red
-            $cloneFailures++
-            continue
-          }
-        } else {
-          Ok "node pack -> $dest (unpinned: no lock entry)"
+      $lock = Get-DependencyLock
+      $pin = $null
+      if ($lock) { $pin = @($lock.node_packs | Where-Object { $_.name -eq $pack.Name })[0] }
+      if ($pin -and $pin.sha) {
+        $null = Invoke-Native 'git' @('-C', $dest, 'checkout', '--quiet', $pin.sha)
+        $rev = Invoke-Native 'git' @('-C', $dest, 'rev-parse', 'HEAD')
+        $head = $rev.Text
+        if ($rev.Code -ne 0 -or $head -ne $pin.sha) {
+          # A failed checkout is a failed install; reporting success here is
+          # how an unreachable pin looked fine for a whole release.
+          Write-Host ("error      {0}: could not check out {1} (HEAD is {2})" -f $pack.Name, $pin.sha, $head) -ForegroundColor Red
+          $cloneFailures++
+          continue
         }
-        $fixed++
+        # Verify by state, not by the commands having returned 0: a stray
+        # .git or a foreign origin must not read as installed.
+        $state = Get-NodePackState $dir $pin
+        if ($state.State -eq 'locked' -or $state.State -eq 'dirty') {
+          Ok ("node pack -> {0} @ {1}" -f $dest, $pin.sha.Substring(0, 7))
+        } else {
+          Write-Host ("error      {0}: checkout verification says '{1}'" -f $pack.Name, $state.State) -ForegroundColor Red
+          $cloneFailures++
+          continue
+        }
+      } else {
+        Ok "node pack -> $dest (unpinned: no lock entry)"
       }
-      else { Write-Host ("warning    {0} clone failed" -f $pack.Name) -ForegroundColor Yellow }
+      $fixed++
     } else {
       Write-Host 'warning    cannot install node packs: needs a ComfyUI custom_nodes folder and git' -ForegroundColor Yellow
       break
@@ -704,37 +1135,238 @@ function Show-Presets {
   foreach ($p in $presets.PSObject.Properties) { Say ("  " + $p.Name) }
 }
 
+# ---------------------------------------------------------------------------
+# generate
+# ---------------------------------------------------------------------------
+function Get-ModelKey([string]$Name) {
+  return (($Name -replace '\\', '/') -replace '\.(safetensors|sft|ckpt|gguf)$', '').ToLowerInvariant()
+}
+
+function Get-SwarmModels([int]$P, [string]$Session, [string]$Subtype) {
+  $r = Invoke-SwarmApi $P 'ListModels' @{ session_id = $Session; path = ''; depth = 10; subtype = $Subtype; sortBy = 'Name'; allowRemote = $true }
+  # Shallow before deep, then by name: a model at the top of its folder is the
+  # stable pick, and the order is the same on every run.
+  return @(@($r.files) | Sort-Object @{ Expression = { ($_.name -split '/').Count } }, @{ Expression = { $_.name } })
+}
+
+function Resolve-SwarmModelName($Files, [string]$Wanted, [string]$What) {
+  # The exact name, or a bare file name that matches one entry. Two matches are
+  # an error, never a guess.
+  $want = Get-ModelKey $Wanted
+  $exact = @($Files | Where-Object { (Get-ModelKey $_.name) -eq $want })
+  if ($exact.Count -eq 1) { return [string]$exact[0].name }
+  $leaf = ($want -split '/')[-1]
+  $hits = @($Files | Where-Object { ((Get-ModelKey $_.name) -split '/')[-1] -eq $leaf })
+  if ($hits.Count -eq 1) { return [string]$hits[0].name }
+  if ($hits.Count -gt 1) {
+    Fail ("$What '$Wanted' matches $($hits.Count) entries; pass the full name: " + (($hits | ForEach-Object { $_.name }) -join '; '))
+  }
+  $have = if (@($Files).Count) { (@($Files | ForEach-Object { $_.name }) -join '; ') } else { 'nothing' }
+  Fail "$What '$Wanted' is not in SwarmUI's list. It has: $have"
+}
+
+# Preset name prefix -> text found in the name, architecture or compatibility
+# class of a model of that family (compared with punctuation removed).
+$script:PresetFamilies = [ordered]@{
+  'Anima'   = @('anima')
+  'FLUX2'   = @('flux2')
+  'FLUX1'   = @('flux1')
+  'Z-Image' = @('zimage')
+  'Krea'    = @('krea')
+  'SDXL'    = @('sdxl', 'stablediffusionxl', 'illustrious')
+}
+
+function Select-PresetModel($Files, [string]$PresetName) {
+  # No -Model and the preset names none: take a model of the preset's family.
+  # A render with a model of another family is noise, so no match is a refusal.
+  if (@($Files).Count -eq 0) { Fail 'SwarmUI lists no checkpoints; run: image-stack.ps1 install' }
+  $keys = @()
+  foreach ($family in $script:PresetFamilies.Keys) {
+    if ($PresetName -like "$family*") { $keys = $script:PresetFamilies[$family]; break }
+  }
+  $hits = @()
+  if ($keys.Count) {
+    $hits = @($Files | Where-Object {
+        $text = ("{0} {1} {2}" -f $_.name, $_.architecture, $_.compat_class).ToLowerInvariant() -replace '[^a-z0-9]', ''
+        $found = $false
+        foreach ($k in $keys) { if ($text.Contains($k)) { $found = $true } }
+        $found
+      })
+  }
+  elseif (@($Files).Count -eq 1) { $hits = @($Files) }
+  if (-not $hits.Count) {
+    Fail ("no installed model fits the preset '$PresetName'; pass -Model. SwarmUI has: " + (@($Files | ForEach-Object { $_.name }) -join '; '))
+  }
+  if ($hits.Count -gt 1) {
+    Note ("model   {0} (first of {1} that fit this preset; choose with -Model)" -f $hits[0].name, $hits.Count)
+  }
+  return [string]$hits[0].name
+}
+
+function ConvertTo-DataUrl([string]$Path, [string]$What) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail "$What not found: $Path" }
+  $mime = switch ([IO.Path]::GetExtension($Path).ToLowerInvariant()) {
+    '.png' { 'image/png' } '.jpg' { 'image/jpeg' } '.jpeg' { 'image/jpeg' } '.webp' { 'image/webp' }
+    default { $null }
+  }
+  if (-not $mime) { Fail "$What must be a .png, .jpg or .webp file: $Path" }
+  return ("data:$mime;base64," + [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path).Path)))
+}
+
+function Get-ImageSize([string]$Path) {
+  # Width and height, or $null when the format is not one GDI+ reads (WebP).
+  try {
+    Add-Type -AssemblyName System.Drawing
+    $img = [System.Drawing.Image]::FromFile((Resolve-Path -LiteralPath $Path).Path)
+    try { return @($img.Width, $img.Height) } finally { $img.Dispose() }
+  }
+  catch { return $null }
+}
+
+function Split-List([string[]]$Values) {
+  # `-Lora a,b` typed in a session is an array; through `powershell -File` the same
+  # text is one string.
+  return @($Values | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function ConvertTo-AsciiJson($Object) {
+  # One line any console code page can carry: non-ASCII becomes \uXXXX.
+  $json = $Object | ConvertTo-Json -Depth 8 -Compress
+  return [regex]::Replace($json, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
+}
+
 function Invoke-Generate {
   $swarm = Get-SwarmRoot
   if (-not $swarm) { Fail 'no SwarmUI install found; see: image-stack.ps1 install' }
-  $port = if ($Port) { $Port } else { Get-SwarmPort }
-  if (-not (Test-SwarmUp $port)) {
-    Fail "SwarmUI is not running on port $port - start $(Join-Path $swarm 'launch-windows.bat') and retry"
-  }
 
+  # Everything that can be refused without a backend is refused first.
   $presets = Read-Presets
   $entry = $presets.PSObject.Properties | Where-Object { $_.Name -eq $Preset } | Select-Object -First 1
   if (-not $entry) { Fail "no preset named '$Preset' (run: image-stack.ps1 presets)" }
+  if ($Count -lt 1) { Fail '-Count must be 1 or more' }
+  if ($Creativity -ne -1 -and ($Creativity -lt 0 -or $Creativity -gt 1)) { Fail '-Creativity is a number from 0 (keep the image) to 1 (ignore it)' }
+  if ($Mask -and -not $InitImage) { Fail '-Mask needs -InitImage: the mask says which part of that image to repaint' }
+  if ($Upscale -ne 0 -and ($Upscale -lt 1 -or $Upscale -gt 4)) { Fail '-Upscale is a factor from 1 to 4, for example 1.5' }
+  $extra = [ordered]@{}
+  # A comma separates two pairs only where another key= follows it, so a value
+  # may hold commas of its own.
+  foreach ($pair in @($Set | ForEach-Object { "$_" -split ',(?=\s*[A-Za-z_]\w*=)' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+    $at = $pair.IndexOf('=')
+    if ($at -lt 1) { Fail "-Set takes key=value pairs (a SwarmUI parameter id and its value); got '$pair'" }
+    $extra[$pair.Substring(0, $at).Trim().ToLowerInvariant()] = $pair.Substring($at + 1)
+  }
+  $loraNames = @(); $loraWeights = @()
+  foreach ($item in (Split-List $Lora)) {
+    $name = $item; $weight = '1'
+    if ($item -match '^(.*):(-?\d+(?:\.\d+)?)$') { $name = $matches[1]; $weight = $matches[2] }
+    $loraNames += $name; $loraWeights += $weight
+  }
+  $initData = $null; $maskData = $null
+  if ($InitImage) { $initData = ConvertTo-DataUrl $InitImage '-InitImage' }
+  if ($Mask) { $maskData = ConvertTo-DataUrl $Mask '-Mask' }
 
+  $port = if ($Port) { $Port } else { Get-SwarmPort }
+  if (-not (Test-SwarmUp $port)) {
+    # -Port names a server the caller runs (Asset Forge starts one per job on a
+    # free port); starting a second one on the default port would not help it.
+    # ($BoundParams, not $Port: variable names ignore case, and $port just above is
+    # the same variable once it has been assigned in this function.)
+    if ($NoStart -or $BoundParams.ContainsKey('Port') -or $env:COMFY_FORGE_NO_AUTOSTART) {
+      Fail "SwarmUI is not running on port $port - run ``image-stack.ps1 start`` (headless), or $(Join-Path $swarm 'launch-windows.bat'), and retry"
+    }
+    Start-Backend
+    $port = Get-SwarmPort   # the record `start` just wrote: SwarmUI may have taken the next free port
+  }
+  elseif ((Get-SwarmBackendState $port) -eq 'loading') { Wait-SwarmBackend $port $null '' }
+
+  $session = New-SwarmSession $port
   $body = Convert-PresetParams $entry.Value.param_map
-  $body['session_id'] = New-SwarmSession $port
-  $body['prompt'] = $Prompt
+  $models = Get-SwarmModels $port $session 'Stable-Diffusion'
+  if ($Model) { $useModel = Resolve-SwarmModelName $models $Model 'model' }
+  elseif ($body['model']) { $useModel = Resolve-SwarmModelName $models ([string]$body['model']) "the model of preset '$Preset'" }
+  elseif ($env:COMFY_FORGE_MODEL) { $useModel = Resolve-SwarmModelName $models $env:COMFY_FORGE_MODEL 'COMFY_FORGE_MODEL' }
+  else { $useModel = Select-PresetModel $models $Preset }
+  if ($Tileable) {
+    # SwarmUI's seamless mode patches UNet convolutions. A transformer model (Anima,
+    # FLUX, Z-Image...) fails inside the backend with an error that names neither
+    # the model nor the option, so say it here, before anything is sent.
+    $entryOf = @($models | Where-Object { $_.name -eq $useModel })[0]
+    $family = ("{0} {1} {2}" -f $useModel, $entryOf.architecture, $entryOf.compat_class).ToLowerInvariant() -replace '[^a-z0-9]', ''
+    if ($family -match 'anima|flux|zimage|krea|sd3|stablediffusionv3|hidream|qwen|chroma|lumina|hunyuan|wan2|auraflow|pixart|cascade') {
+      Fail ("-Tileable works with UNet models (SDXL, SD 1.5), and $useModel is a transformer model. " +
+            "Pass an SDXL model with -Model, or render without -Tileable and make the texture tile in Asset Forge (texture-tileable).")
+    }
+  }
+
+  if ($loraNames.Count) {
+    $loras = Get-SwarmModels $port $session 'LoRA'
+    $resolved = @($loraNames | ForEach-Object { (Resolve-SwarmModelName $loras $_ 'LoRA') -replace '\.(safetensors|sft|ckpt)$', '' })
+    $body['loras'] = ($resolved -join ',')
+    $body['loraweights'] = ($loraWeights -join ',')
+  }
+
+  # An edit keeps the size of the image it edits unless a size was asked for.
+  if ($InitImage -and -not $BoundParams.ContainsKey('Width') -and -not $BoundParams.ContainsKey('Height')) {
+    $size = Get-ImageSize $InitImage
+    if ($size) {
+      $script:Width = [Math]::Max(64, [int]([Math]::Floor($size[0] / 16) * 16))
+      $script:Height = [Math]::Max(64, [int]([Math]::Floor($size[1] / 16) * 16))
+    }
+  }
+  $useSeed = if ($Seed -lt 0) { Get-Random -Minimum 0 -Maximum 2147483647 } else { $Seed }
+
+  $body['session_id'] = $session
+  # A preset may carry a prompt of its own (a pose sheet, for instance); it is kept
+  # unless a prompt was given.
+  if ($BoundParams.ContainsKey('Prompt') -or -not $body['prompt']) { $body['prompt'] = $Prompt }
   $body['images'] = $Count
-  $body['model'] = $Model
+  $body['model'] = $useModel
   $body['width'] = $Width
   $body['height'] = $Height
-  $body['seed'] = $Seed
+  $body['seed'] = $useSeed
   if ($Steps -gt 0) { $body['steps'] = $Steps }
   if ($Cfg -gt 0) { $body['cfgscale'] = $Cfg }
+  if ($Negative) { $body['negativeprompt'] = $Negative }
+  if ($initData) {
+    $body['initimage'] = $initData
+    if ($Creativity -ne -1) { $body['initimagecreativity'] = $Creativity }
+  }
+  if ($maskData) { $body['maskimage'] = $maskData }
+  if ($Transparent) { $body['removebackground'] = $true }
+  if ($Tileable) { $body['seamlesstileable'] = 'true' }
+  if ($Upscale -gt 1) {
+    # SwarmUI runs its refiner stage, which is where the upscale happens, only when
+    # both a refiner method and a control percentage are present, and it resizes only
+    # when an upscale method is named (its API reads a missing one as "None"). With the
+    # factor alone it silently rendered at the base size.
+    $body['refinerupscale'] = $Upscale
+    if (-not $body['refinermethod']) { $body['refinermethod'] = 'PostApply' }
+    if (-not $body['refinerupscalemethod']) { $body['refinerupscalemethod'] = 'pixel-lanczos' }
+    if (-not $body['refinercontrolpercentage']) { $body['refinercontrolpercentage'] = 0.4 }
+  }
+  foreach ($k in $extra.Keys) { $body[$k] = $extra[$k] }
 
-  $json = $body | ConvertTo-Json -Depth 6 -Compress
-  Note ("preset {0} -> {1}x{2}, {3} image(s)" -f $Preset, $Width, $Height, $Count)
-  $r = Invoke-RestMethod -Uri "http://127.0.0.1:$port/API/GenerateText2Image" -Method Post `
-    -ContentType 'application/json' -Body $json -TimeoutSec 900 -UseBasicParsing
+  Note ("preset {0} -> {1} at {2}x{3}, {4} image(s), seed {5}" -f $Preset, $useModel, $body['width'], $body['height'], $Count, $useSeed)
+  $r = Invoke-SwarmApi $port 'GenerateText2Image' $body 1800
   if ($r.error) { Fail ("SwarmUI refused: " + $r.error) }
+  if (-not @($r.images).Count) { Fail 'SwarmUI finished without returning an image' }
 
-  if (-not $Out) { $Out = Join-Path $Root 'out' }
+  if (-not $Out) { $script:Out = Join-Path $Root 'out' }
   New-Item -ItemType Directory -Force -Path $Out | Out-Null
+  $record = [ordered]@{
+    tool = 'comfy-forge generate'; tool_version = (Get-Content -LiteralPath (Join-Path $Root 'VERSION') -Raw).Trim()
+    preset = $Preset; model = $useModel; prompt = [string]$body['prompt']; negative = [string]$body['negativeprompt']
+    width = $body['width']; height = $body['height']; steps = $body['steps']; cfg = $body['cfgscale']
+    sampler = $body['sampler']; scheduler = $body['scheduler']; seed = $useSeed
+    init_image = $(if ($InitImage) { (Resolve-Path -LiteralPath $InitImage).Path } else { $null })
+    creativity = $(if ($initData) { $body['initimagecreativity'] } else { $null })
+    mask = $(if ($Mask) { (Resolve-Path -LiteralPath $Mask).Path } else { $null })
+    loras = $body['loras']; lora_weights = $body['loraweights']
+    transparent = [bool]$Transparent; tileable = [bool]$Tileable; upscale = $(if ($Upscale -gt 1) { $Upscale } else { $null })
+    set = $extra
+    created = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  }
+  $files = @(); $seeds = @(); $index = 0
   foreach ($rel in $r.images) {
     $file = Join-Path $Out (Split-Path -Leaf $rel)
     # SwarmUI returns paths like "View/local/raw/<date>/<file>.png"; older
@@ -743,7 +1375,16 @@ function Invoke-Generate {
     $parts = @($viewPath -split '/' | ForEach-Object { [uri]::EscapeDataString($_) })
     $url = "http://127.0.0.1:$port/" + ($parts -join '/')
     Invoke-WebRequest -Uri $url -OutFile $file -TimeoutSec 300 -UseBasicParsing | Out-Null
+    # SwarmUI counts the seed up by one for each image of a batch.
+    $record['seed'] = $useSeed + $index
+    [IO.File]::WriteAllText(($file + '.json'), ($record | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false))
+    $files += (Resolve-Path -LiteralPath $file).Path; $seeds += ($useSeed + $index); $index++
     Ok ("wrote {0}  ({1:N0} KB)" -f $file, ((Get-Item -LiteralPath $file).Length / 1KB))
+  }
+  if ($Json) {
+    Write-Output (ConvertTo-AsciiJson ([ordered]@{
+          files = $files; seed = $useSeed; seeds = $seeds; model = $useModel; preset = $Preset
+          width = $body['width']; height = $body['height'] }))
   }
 }
 
@@ -976,8 +1617,12 @@ function Show-Mcp {
   Ok "comfyui server is in $target (port $cp)"
 }
 
+if ($Help) { $Verb = 'help' }
 switch ($Verb) {
   'status'   { Show-Status }
+  'capabilities' { Show-Capabilities }
+  'start'    { Start-Backend }
+  'stop'     { Stop-Backend }
   'install'  { Invoke-Install }
   'presets'  { Show-Presets }
   'generate' { Invoke-Generate }

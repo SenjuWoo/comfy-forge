@@ -10,8 +10,9 @@
 </p>
 
 <p align="center">
-  Install Anima, render a preset, merge four checkpoints into one, and connect an
-  agent — without hand-editing JSON or averaging <code>.safetensors</code> in your head.
+  Images, 3D models and music from the command line, for people and for agents that can
+  only write text and code: install Anima, render a preset, turn a picture or a prompt into
+  a game-ready mesh, make a song, merge four checkpoints into one.
 </p>
 
 <p align="center">
@@ -29,10 +30,13 @@
 # 1. fetch whatever is missing: models, node pack, python modules
 powershell -File TOOLS\image-stack.ps1 install
 
-# 2. start SwarmUI (launch-windows.bat), then render
+# 2. render. SwarmUI is started for you, headless, when it is not running
 powershell -File TOOLS\image-stack.ps1 generate -Prompt "a neon alley at night, rain, reflections"
 
-# 3. merge four checkpoints into one file
+# 3. a prompt to a game-ready 3D model (needs the Pixal3D weights and Asset Forge, see below)
+python TOOLS/model3d.py generate --prompt "a viking axe with a wolf-head pommel" --name axe --game-ready
+
+# 4. merge four checkpoints into one file
 #    all four must share a lineage; if their true ancestor is missing, add
 #    -AcceptFallbackAnchor and the first donor becomes the anchor WITHOUT
 #    losing its weight (the CLI prints the resulting shares)
@@ -43,14 +47,32 @@ powershell -File TOOLS\image-stack.ps1 merge -Base "<same-lineage base>" `
 `install` is safe to re-run: it downloads only what is missing and
 verifies each file by SHA-256, so re-running is cheap and safe.
 
+SwarmUI has to have been opened once the normal way (`launch-windows.bat`) so it can
+build itself and install its ComfyUI backend. After that nothing needs a window:
+`generate`, the 3D tool and the music tool start it headless when nothing answers, and
+`image-stack.ps1 stop` ends it again.
+
+## For agents
+
+```powershell
+powershell -File TOOLS\image-stack.ps1 capabilities
+```
+
+prints one JSON object: every lane (image, 3D, music, dataset, merge, MCP), whether it is
+ready on this machine, the command that runs it and the command that fixes what is
+missing. Every generating command ends with one JSON line and writes a `.json` sidecar
+beside each file. The runbook is [AGENTS.md](AGENTS.md).
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `status` | Frontend, models, server, ComfyUI port, and every requirement with a fix line |
+| `capabilities` | The same as one JSON object, for a program to read |
+| `start` / `stop` | Start SwarmUI headless and wait until it can render / stop the one `start` launched |
 | `install` | Models, both node packs (HaDeS + RES4LYF) and the python merge modules — whatever is missing |
 | `presets` | List the presets; `-Name "<preset>"` prints one preset's settings |
-| `generate` | Render through SwarmUI's API into `out\` |
+| `generate` | Render through SwarmUI's API into `out\`: text to image, image to image, inpaint, LoRA, transparent background, upscale — [docs/IMAGES.md](docs/IMAGES.md) |
 | `merge` | Write a merged `.safetensors` and refresh SwarmUI's model list |
 | `mcp` | Print a ready client config for the ComfyUI MCP server; `-Write -Agent claude` (or a path) adds it to a JSON agent config, keeping everything else and a backup |
 
@@ -84,7 +106,15 @@ This repo carries three image-to-3D ComfyUI templates (`presets/3d/`, MIT, from 
 
 Guidance (full comparison and failure modes in **[docs/3D-MODELS.md](docs/3D-MODELS.md)**): **props → Pixal3D single image; characters → turnaround sheet → Pixal3D multi-view; previews → Idol.** Pixal3D is the better overall pick — Idol does not produce an unwrapped, PBR-textured mesh.
 
-The GLB is a sculpt, about 700,000 triangles. That file fails the game-ready gate. One command writes a mesh at or under 20,000 triangles:
+One command runs a template, no node editor needed:
+
+```powershell
+python TOOLS/model3d.py generate --image sword.png --name sword --game-ready      # a picture
+python TOOLS/model3d.py generate --prompt "a wooden treasure chest" --game-ready  # or a description
+python TOOLS/model3d.py generate --variant pixal3d-multi --views front.png,left.png,back.png,right.png
+```
+
+It uploads the picture, runs the shipped template itself, saves the `.glb` with a sidecar and ends with one JSON line. The GLB is a sculpt, about 700,000 triangles, and fails the game-ready gate on its own; `--game-ready` hands it to [AssetForge](https://github.com/SenjuWoo/AssetForge), which writes a mesh at or under 20,000 triangles. For a `.glb` you already have:
 
 ```powershell
 powershell -File TOOLS\game-ready.ps1 -Input model.glb
@@ -121,14 +151,15 @@ Graph, templates and installer are tested against each other without a GPU, and 
 
 comfy-forge renders; [AssetForge](https://github.com/SenjuWoo/AssetForge) turns the result into a validated, engine-exportable game asset. AssetForge delegates its `comfy-generate` recipe to this repo, so the two are designed to sit side by side — AssetForge is a separate install and nothing about it lives in here.
 
-Install comfy-forge first (`install`, then `launch-windows.bat` for SwarmUI), then point AssetForge at this folder with `COMFY_KIT_ROOT` and its renders land inside your asset project instead of a loose folder of PNGs. Setup, the expected session, and what is and isn't verified: **[docs/ASSETFORGE.md](docs/ASSETFORGE.md)**.
+Install comfy-forge first (`install`), then point AssetForge at this folder with `COMFY_FORGE_ROOT` and its renders land inside your asset project instead of a loose folder of PNGs. In the other direction, `model3d.py --game-ready` and `TOOLS\game-ready.ps1` hand a generated mesh to AssetForge. Setup, the command contract both sides rely on, and what is and isn't verified: **[docs/ASSETFORGE.md](docs/ASSETFORGE.md)**.
 
 ## What's in the box
 
 | | |
 |---|---|
 | **42 presets** | Anima, FLUX.1/2, Krea 2, SDXL, Z-Image — shot parameters only, no workflow graph |
-| **3 image→3D templates** | `presets/3d/` — Idol (fine-tuned TripoSplat, Apache-2.0) and Pixal3D single-image/multi-view (MIT), plus `TOOLS/Install-3DModels.ps1` to download the weights |
+| **3 image→3D templates** | `presets/3d/` — Idol (fine-tuned TripoSplat, Apache-2.0) and Pixal3D single-image/multi-view (MIT); `TOOLS/model3d.py` runs them from a picture or a prompt, `TOOLS/Install-3DModels.ps1` downloads the weights |
+| **Headless backend** | `start` / `stop`, and every generating command starts SwarmUI itself when it is down |
 | **6 music templates** | `presets/music/` — ACE-Step 1.5 (turbo, XL turbo/SFT/base), `TOOLS/music.py` to render, `TOOLS/Install-MusicModels.ps1` to download the weights (Apache-2.0 per the model card) |
 | **Anima installer** | 2.9B bf16 + Qwen3 0.6B encoder + Qwen Image VAE, pinned by hash |
 | **Merge tool** | Task arithmetic over up to four checkpoints, streamed write, provenance in metadata |
@@ -227,16 +258,25 @@ Python 3.12 embedded. Version: see `VERSION` (single source of truth).
 | Self-merge | bit-identical to the base, and renders |
 | Merge math | weights, scale, dtype policy, topology, metadata, writer rollback, encoder/VAE protection |
 | Lineage gate | 40-block base + 28-block donor refused, never silently blended |
-| MCP handshake | `comfyui-mcp@0.52.206`, `list_tools` / `describe_tool` / `call_tool` |
+| MCP handshake | `comfyui-mcp@0.52.206`, `list_tools` / `describe_tool` / `call_tool`, and a workflow rendered through it |
+| Headless start | SwarmUI started by the tool itself: web server in 3 s, its ComfyUI ready in about 45 s |
+| Image options | image to image, transparent background (alpha channel), LoRA, upscale (768 → 1152), a Japanese prompt |
+| Text → 3D → game-ready | prompt → Anima concept → Pixal3D 699,350-triangle PBR `.glb` → AssetForge 17,000 triangles |
+| 3D variants | Pixal3D single (58 s), Pixal3D multi-view (64 s), Idol splat + mesh + orbit video (50 s) |
+| AssetForge `comfy-generate` | run end to end through this repo |
 
-Not verified: hosts other than Windows, and standalone ComfyUI installs (this was
-built against SwarmUI, which drives its own ComfyUI backend).
+Not verified: hosts other than Windows, standalone ComfyUI installs (this was
+built against SwarmUI, which drives its own ComfyUI backend; the standalone start
+path is covered by the test suite only), `-Tileable` with an SDXL model (none
+installed here), and the `trellis2` variant (weights not installed).
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| `SwarmUI is not running` | `launch-windows.bat` in the SwarmUI folder first |
+| `SwarmUI is not running` | Only with `-NoStart` or `-Port`: run `image-stack.ps1 start`. If `start` fails it prints the log; open SwarmUI once with `launch-windows.bat` |
+| `model '...' is not in SwarmUI's list` | The message lists what is installed; pass one with `-Model`, or leave `-Model` out |
+| `--game-ready` fails, the `.glb` is fine | The last step is Asset Forge's; the JSON line's `game_ready_error` says why. The raw model is kept |
 | A merged model renders black | The blend paired different layer counts — merge within one lineage |
 | `Invalid value for parameter VAE` | Presets carry `Automatic`; the CLI strips it, the UI needs a real VAE |
 | New checkpoint missing from the UI | `status`, then restart SwarmUI — its model list is cached at startup |
@@ -246,7 +286,9 @@ built against SwarmUI, which drives its own ComfyUI backend).
 ## Layout
 
 ```
-TOOLS/image-stack.ps1            the CLI
+TOOLS/image-stack.ps1            the CLI: status, capabilities, start, stop, install, generate, merge, mcp
+TOOLS/model3d.py, model3d.ps1    image or text to a 3D model through the shipped templates
+TOOLS/game-ready.ps1             a generated .glb to a game-ready mesh (AssetForge does the work)
 TOOLS/merge_anima.py             the merge engine
 TOOLS/Ensure-AnimaSwarmUI.ps1    model download and verification
 TOOLS/Install-3DModels.ps1       downloads the Idol/Pixal3D 3D weights (opt-in)
@@ -256,8 +298,8 @@ presets/                         42 presets, hash-pinned manifest
 presets/3d/                      3D templates (Idol, Pixal3D) — MIT, from Comfy-Org workflow templates
 presets/music/                   ACE-Step 1.5 templates (turbo, XL) — MIT, from Comfy-Org workflow templates
 workflows/                       ComfyUI 4-way merge graph
-docs/                            DATASET.md, MERGE.md, MUSIC.md, ASSETFORGE.md, 3D-MODELS.md, GAME-READY.md, PRODUCTION-WORKFLOWS.md, banner, sample render
-TESTS/                           merge, installers, dataset, music, MCP; TOOLS/preflight.ps1 runs them all
+docs/                            IMAGES.md, 3D-MODELS.md, GAME-READY.md, MUSIC.md, DATASET.md, MERGE.md, ASSETFORGE.md, PRODUCTION-WORKFLOWS.md, banner, sample render
+TESTS/                           generate/start/stop, 3D, merge, installers, dataset, music, MCP; TOOLS/preflight.ps1 runs them all
 ```
 
 ## Licence

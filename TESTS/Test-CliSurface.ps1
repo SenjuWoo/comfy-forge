@@ -93,6 +93,36 @@ foreach ($c in $checks) {
   }
 }
 
+# `comfy-forge --help` is the first thing an agent runs. The registered command
+# passes its arguments straight to this script, where --help used to be an unknown
+# parameter and the command failed.
+foreach ($flag in @('--help', '-h', '-Help')) {
+  $r = Invoke-Cli @($flag)
+  if ($r.Exit -eq 0 -and $r.Text -match 'capabilities' -and $r.Text -match 'model3d\.ps1') {
+    Pass "$flag prints the help, every verb and the sibling tools"
+  } else {
+    Fail "$flag exit=$($r.Exit): $($r.Text.Trim())"
+  }
+}
+
+# capabilities: one JSON object, every lane, on any machine (no backend needed).
+$r = Invoke-Cli @('capabilities')
+$caps = $null
+try { $caps = $r.Text | ConvertFrom-Json } catch { }
+$lanes = @()
+if ($caps -and $caps.lanes) { $lanes = @($caps.lanes.PSObject.Properties.Name) }
+$wanted = @('image', 'model3d', 'music', 'dataset', 'merge', 'mcp')
+if ($r.Exit -eq 0 -and $caps -and -not @($wanted | Where-Object { $lanes -notcontains $_ }).Count -and
+    $caps.version -eq (Get-Content -LiteralPath (Join-Path $repo 'VERSION') -Raw).Trim() -and $caps.backend.start -match 'start') {
+  Pass 'capabilities is valid JSON with every lane, the version and the start command'
+} else {
+  Fail "capabilities exit=$($r.Exit) lanes=$($lanes -join ',')"
+}
+foreach ($lane in $wanted) {
+  if ($caps -and $caps.lanes.$lane.command -and $caps.lanes.$lane.ready -is [bool]) { continue }
+  Fail "capabilities lane '$lane' lacks a command or a ready flag"
+}
+
 # --- 2. call graph: no call to a missing helper ------------------------------
 $files = @($cli) + @(Get-ChildItem (Join-Path $repo 'TOOLS') -Filter '*-lib.ps1' | ForEach-Object FullName)
 $defined = @{}
