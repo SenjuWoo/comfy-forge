@@ -13,6 +13,8 @@ the same sampler values as the shipped template.
 
 The backend is found on its own: --url, else COMFYUI_URL, else the first of port
 8188 (standalone ComfyUI) and 7820-7832 (SwarmUI's ComfyUI backend) that answers.
+When none answers and no address was given, `generate` starts it headless
+(image-stack.ps1 start); --no-start refuses instead.
 Every take is saved with a .json sidecar holding its full settings and seed.
 
 Nothing here downloads a model (TOOLS/Install-MusicModels.ps1 does, on request) and
@@ -263,6 +265,42 @@ def no_backend_message(url):
         f"UNVERIFIED: no ComfyUI answered on port {ports[0]}. Start ComfyUI, or pass --url."
 
 
+def powershell():
+    return shutil.which("powershell") or shutil.which("pwsh")
+
+
+def image_stack(arguments, timeout):
+    """Run TOOLS/image-stack.ps1; returns (exit code, output lines)."""
+    shell = powershell()
+    if not shell:
+        return 127, ["PowerShell was not found"]
+    cmd = [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+           os.path.join(REPO, "TOOLS", "image-stack.ps1")] + list(arguments)
+    try:
+        run = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout,
+                             stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return 124, [f"image-stack.ps1 {arguments[0]} did not finish within {timeout}s"]
+    return run.returncode, [line for line in (run.stdout + run.stderr).splitlines() if line.strip()]
+
+
+def ensure_backend(url, allow_start, log):
+    """(base, stats) like resolve_backend, starting the backend headless when none answers.
+
+    Only when the address was left to this tool: an explicit --url or COMFYUI_URL
+    names a server the caller runs, and a second one would not be that server.
+    """
+    base, stats = resolve_backend(url)
+    if stats or url or not allow_start or os.environ.get("COMFY_FORGE_NO_AUTOSTART"):
+        return base, stats
+    log("..   backend     none answering; starting it headless (image-stack.ps1 start)")
+    code, lines = image_stack(["start"], timeout=900)
+    if code != 0:
+        log("..   backend     could not be started: " + (lines[-1] if lines else f"exit {code}"))
+        return None, None
+    return resolve_backend(url)
+
+
 def required_files(spec):
     """(object_info node, input name, file) triples that must be visible to the backend."""
     if spec["loader"] == "checkpoint":
@@ -277,8 +315,13 @@ def visible_options(info, node, field):
     entry = info.get(node, {}).get("input", {})
     for section in ("required", "optional"):
         if field in entry.get(section, {}):
-            options = entry[section][field][0]
-            return options if isinstance(options, list) else []
+            spec = entry[section][field]
+            if isinstance(spec[0], list):
+                return spec[0]
+            # Newer nodes describe a choice as ["COMBO", {"options": [...]}].
+            if len(spec) > 1 and isinstance(spec[1], dict) and isinstance(spec[1].get("options"), list):
+                return spec[1]["options"]
+            return []
     return []
 
 
@@ -313,11 +356,21 @@ def queue_position(base, prompt_id):
 def wait_for(base, prompt_id, timeout, log):
     start = time.time()
     last_note = start
+    failures = 0
     while time.time() - start < timeout:
         try:
             history = http_json(f"{base}/history/{prompt_id}", timeout=30)
+            failures = 0
         except (urllib.error.URLError, OSError) as e:
-            raise BackendError(f"lost the backend while waiting: {e}")
+            # A backend deep in a heavy step (a 700,000-triangle bake) can be slow to
+            # answer once; that must not fail a job that is still running. A backend
+            # that is gone refuses the connection, and keeps refusing.
+            failures += 1
+            refused = isinstance(getattr(e, "reason", e), ConnectionRefusedError)
+            if failures >= (5 if refused else 20):
+                raise BackendError(f"lost the backend while waiting: {e}")
+            time.sleep(2)
+            continue
         if prompt_id in history:
             return history[prompt_id], time.time() - start
         if time.time() - last_note >= 15:
@@ -531,7 +584,7 @@ def run_generate(args, out_stream=sys.stdout):
     prefix = f"audio/{slug(s['name'])}" if s["name"] else args.prefix
     graphs = [graph_for(s, seed, prefix, args) for seed in seeds]  # validates before any network call
 
-    base, stats = resolve_backend(args.url)
+    base, stats = ensure_backend(args.url, not getattr(args, "no_start", False), log)
     if not stats:
         log(no_backend_message(args.url))
         return 3
@@ -731,6 +784,8 @@ def make_parser():
     g.add_argument("--count", type=int, default=1, help="number of takes; seeds count up from --seed")
     g.add_argument("--out", default=os.path.join("out", "music"), help="folder for the audio files (default out/music)")
     g.add_argument("--timeout", type=int, default=1800, help="seconds to wait for each take")
+    g.add_argument("--no-start", action="store_true",
+                   help="do not start a backend when none answers (with no --url one is started headless)")
     g.add_argument("--no-audio-codes", action="store_true",
                    help="skip the language-model planning pass (faster, lower quality)")
     g.add_argument("--lm-cfg", type=float, default=None)

@@ -17,6 +17,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-Mirror.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-ModelInstall.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File TESTS\Test-Version.ps1
 python TESTS\test_merge.py
+python TESTS\test_generate.py            # start, stop, generate, capabilities against a stand-in backend
+python TESTS\test_model3d.py             # 3D templates as API graphs, lock, installer, CLI, glTF repair
 python TESTS\test_music.py
 python TESTS\test_mcp_config.py          # mcp -Write keeps the rest of an agent config
 python TESTS\test_installers.py          # weight installers: root discovery, missing drive
@@ -48,9 +50,10 @@ that is expected on CI and must never be reported as a pass.
 
 ## Live layer (real backend)
 
-1. Start SwarmUI or ComfyUI.
+1. Start the backend: `powershell -File TOOLS\image-stack.ps1 start` (headless), or open
+   SwarmUI or ComfyUI yourself.
 2. Find the backend's port — SwarmUI picks the next free one if 7821 is busy:
-   `netstat -ano | findstr :78`
+   `powershell -File TOOLS\image-stack.ps1 status` prints it.
 3. Run:
 
 ```powershell
@@ -70,6 +73,23 @@ python TESTS\test_mcp_handshake.py --workflow
 ```
 
 That enqueues through the MCP tool and waits for the job to produce an image.
+
+The image and 3D lanes are proven by using them:
+
+```powershell
+powershell -File TOOLS\image-stack.ps1 generate -Prompt "a red apple on a white table" -Out out\live -Json
+python TOOLS\model3d.py check --variant all
+python TOOLS\model3d.py generate --image out\live\<the image>.png --name apple --game-ready
+```
+
+The first line starts the backend if it is down. Look at the image and open the `.glb`:
+a file arriving is not proof that it is good.
+
+`TESTS\test_generate.py` and `TESTS\test_model3d.py` need none of that. They run the real
+CLI against `TESTS\fixtures\backend_stub.py`, a small server that answers SwarmUI's and
+ComfyUI's APIs and records every request, and they start and stop that server through a
+fake SwarmUI folder, with the state folder redirected (`COMFY_FORGE_STATE_DIR`) so the
+machine's own backend record is never touched.
 
 ## The four-way merge graph (live, slow)
 

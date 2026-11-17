@@ -1,5 +1,90 @@
 # Changelog
 
+## v0.11.0 - every generative lane, with no human step
+
+For an agent that can only write text and code: a prompt becomes an image, a
+game-ready 3D model or a song with no window to open and no server to start by
+hand. Six defects found on the way are fixed; each has a test that fails without
+the fix.
+
+**New**
+- `TOOLS/model3d.py` (and `model3d.ps1`): image, turnaround or text to a 3D model.
+  `generate --image f.png --game-ready` uploads the picture, runs the shipped
+  template, saves the `.glb` with a sidecar, and hands it to Asset Forge's
+  `mesh-gameready`. `--prompt "..."` renders the picture first. Variants: `pixal3d`,
+  `pixal3d-multi` (a four-view sheet, or `--views front,left,back,right`),
+  `trellis2`, `idol`. `variants`, `check` and `build` work like the music tool's.
+  The graph that runs is the template file itself, converted to API format at run
+  time (subgraphs expanded, constant switches folded, previews dropped), so
+  `presets/3d/generation.json` now guards what executes and no second copy of the
+  graph exists. Before this the templates could only be run by hand in the node
+  editor.
+- `image-stack.ps1 start` / `stop`: SwarmUI headless (no window, no browser), or a
+  standalone ComfyUI when there is no SwarmUI. `start` waits until SwarmUI's
+  ComfyUI backend has loaded, not just until the web server answers. `stop` ends
+  only the process `start` launched; a record whose pid now belongs to something
+  else is discarded, never acted on. While the backend is rendering (its own
+  queue or SwarmUI's), `stop` refuses unless `-Force` is given, so a job another
+  tool sent to the same backend is not killed.
+- `generate`, `model3d.py generate` and `music.py generate` start the backend
+  themselves when nothing answers and leave it running. `-NoStart`, `--no-start`
+  or `COMFY_FORGE_NO_AUTOSTART=1` turn that off; an explicit `-Port`, `--url` or
+  `COMFYUI_URL` is never replaced by another server.
+- `generate` options: `-Negative`, `-InitImage` with `-Creativity` (image to
+  image), `-Mask` (inpaint), `-Lora name[:weight]`, `-Transparent`, `-Tileable`,
+  `-Upscale`, `-Set key=value` for any other SwarmUI parameter, and `-Json` for a
+  closing JSON line. Every image gets a `.json` sidecar with its own seed. A random
+  seed is chosen here and reported, so any render can be repeated. `docs/IMAGES.md`.
+- `image-stack.ps1 capabilities`: one JSON object with every lane (image, 3D,
+  music, dataset, merge, MCP), whether it is ready, the command that runs it and
+  the command that fixes what is missing. `status` gained a `3d` line.
+- `comfy-forge --help` and `-h`.
+
+**Broken**
+- `generate` with no `-Model` asked for `Anima/Anima-2.9B-preview-v1.safetensors`
+  whether or not SwarmUI had it, and used it for every preset, FLUX and SDXL
+  included. On an install whose checkpoints live elsewhere the default render was
+  refused. The model is now the preset's own, else `COMFY_FORGE_MODEL`, else the
+  first one SwarmUI lists for the preset's family; `-Model` takes a bare file name;
+  a name that fits two files, or a preset with no model of its family installed, is
+  refused with the list of what is there.
+- `comfy-forge --help` failed with "A parameter cannot be found that matches
+  parameter name '-help'": the registered command passes its arguments straight to
+  `image-stack.ps1`.
+- A prompt with characters outside Latin-1 (Japanese names, for one) reached
+  SwarmUI as question marks, and an image SwarmUI named after such a prompt could
+  not be downloaded: Windows PowerShell 5.1 sent and read the API as ISO-8859-1.
+  Requests and replies are UTF-8 now.
+- `status` ended in a Python traceback on any interpreter without torch instead of
+  reporting `missing merge deps`: under `ErrorActionPreference=Stop`, 5.1 turns a
+  redirected stderr line into a terminating error. The same pattern hid the
+  installer's "could not check out the pinned commit" message behind a crash. Every
+  such call goes through one helper now.
+- The mesh nodes write a zero-length normal on a few vertices of every Pixal3D
+  mesh (8 of 424,368 on the test axe), which is invalid glTF and an error in the
+  Khronos validator. `model3d.py` repairs them (the normal of a triangle that uses
+  the vertex) and changes nothing else in the file.
+- ComfyUI nodes that describe a choice as `["COMBO", {"options": [...]}]` were read
+  as having no options, so a model file that was present was reported missing.
+
+**Fragile**
+- A backend started from a command whose output is captured kept that pipe open,
+  so the caller waited until the backend exited. `start` launches it detached.
+- `Install-MissingRequirements` carried an unreachable branch after its
+  clone-failure `continue`; removed.
+
+**Tests**
+- `TESTS/test_generate.py`: the real CLI against `TESTS/fixtures/backend_stub.py`
+  (a stand-in for SwarmUI and ComfyUI that records every request), with `start`
+  and `stop` driving a real process through a fake SwarmUI folder and the state
+  folder redirected by `COMFY_FORGE_STATE_DIR`.
+- `TESTS/test_model3d.py`: every variant converts; the converted graph carries
+  the locked sampler, decimate and bake values; the branch a switch does not take
+  is gone; `variants` and the installer agree; subgraphs keep values and wiring;
+  the CLI uploads, queues, saves and skips previews; glTF repair is byte-exact.
+- Both run in `preflight.ps1`, `ci.yml` and `release-verify.yml`.
+  `Test-CliSurface.ps1` covers `--help`, `-h` and `capabilities`.
+
 ## v0.10.0 - audit: fixes for broken and untrue behaviour
 
 A full audit of the tools, tests, gates and docs. Every fix below was reproduced

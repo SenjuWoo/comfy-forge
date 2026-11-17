@@ -220,6 +220,7 @@ def run_cli(args, url=None, timeout=60, env=None):
     if url:
         cmd += ["--url", url]
     full_env = {k: v for k, v in os.environ.items() if k not in ("COMFYUI_URL", "COMFY_FORGE_PROBE_PORTS")}
+    full_env["COMFY_FORGE_NO_AUTOSTART"] = "1"  # these runs must never start a real backend
     full_env.update(env or {})
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                           timeout=timeout, env=full_env)

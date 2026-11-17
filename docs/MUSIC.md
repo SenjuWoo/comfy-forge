@@ -12,7 +12,8 @@ for full songs and instrumentals.
 powershell -File TOOLS\Install-MusicModels.ps1 -WhatIf
 powershell -File TOOLS\Install-MusicModels.ps1 -Set aio
 
-# 2. start SwarmUI (or a standalone ComfyUI), then ask whether it is ready
+# 2. optional: start the backend (headless) and ask whether it is ready; step 3 starts it too
+powershell -File TOOLS\image-stack.ps1 start
 powershell -File TOOLS\music.ps1 check
 
 # 3. make three takes and keep the one you like
@@ -22,6 +23,9 @@ powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, 
 
 The backend is found on its own: `--url` if you pass it, else `COMFYUI_URL`, else the first of
 port 8188 (standalone ComfyUI) and 7820-7832 (SwarmUI's ComfyUI backend) that answers.
+When none answers and you gave no address, `generate` starts the backend headless
+(`image-stack.ps1 start`) and leaves it running; `--no-start` refuses instead, and an
+explicit `--url` or `COMFYUI_URL` is never swapped for another server.
 `check --variant all` lists which variants are installed. `image-stack.ps1 status` ends with a
 `music` line that lists the variants whose files are on disk.
 

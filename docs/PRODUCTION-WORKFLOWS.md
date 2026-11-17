@@ -31,15 +31,18 @@ Parametric, consistent silhouettes, deterministic, LODs built by the pipeline.
 (`texture-pack` for ORM, `image-prep` for sizing/webp, `glb-optimize` to pack it into the
 asset). comfy-forge owns generation; AssetForge packages and validates it.
 
-**One concept image → a game asset (hero rock, statue, sword, axe)** → **comfy-forge** (`presets/3d/`,
-Pixal3D — see [3D-MODELS.md](3D-MODELS.md)) for the raw mesh, then one command:
-`powershell -File TOOLS\game-ready.ps1 -Input model.glb`. That calls Asset Forge
-`mesh-gameready`. The raw file is about 700,000 triangles and **fails**. The default
-ships at 20,000 triangles or fewer. See [GAME-READY.md](GAME-READY.md).
+**One concept image → a game asset (hero rock, statue, sword, axe)** → **comfy-forge**, one command:
+`python TOOLS/model3d.py generate --image concept.png --name sword --game-ready`
+(Pixal3D — see [3D-MODELS.md](3D-MODELS.md)). It makes the raw mesh, about 700,000 triangles,
+which **fails** the game-ready gate on its own, then calls Asset Forge `mesh-gameready`, which
+ships 20,000 triangles or fewer. See [GAME-READY.md](GAME-READY.md).
 
-**Character with a turnaround sheet** → **comfy-forge** (Pixal3D multi-view from the
-[turnaround generator](https://github.com/Comfy-Org/workflow_templates)) then the same
-`game-ready.ps1` command. That cap is for one prop mesh. A full character is a different
+**No concept image yet, only a description** → the same command with `--prompt "..."` instead
+of `--image`: comfy-forge renders the picture first.
+
+**Character with a turnaround sheet** → **comfy-forge**
+(`model3d.py generate --variant pixal3d-multi --image sheet.png`, or `--views` with separate
+pictures) then the same game-ready step. That cap is for one prop mesh. A full character is a different
 budget, and this command does not guess one. The route is still the one in either tool
 for a consistent character mesh.
 
@@ -66,7 +69,8 @@ numbers, provenance and (optionally) `GLB-014` validation alongside the asset.
 Need an asset?
   ├── can a preset produce it?          → ASSETFORGE (blender-pipeline)
   ├── is it a texture/material look?     → comfy-forge generate → ASSETFORGE texture-pack → comfy-forge/AssetForge export
-  ├── is it a mesh from a concept image? → comfy-forge presets/3d (Pixal3D) → TOOLS/game-ready.ps1 (Asset Forge mesh-gameready, 20000 triangles) → export
+  ├── is it a mesh from a concept image? → comfy-forge model3d.py generate --game-ready (Pixal3D → Asset Forge mesh-gameready, 20000 triangles) → export
+  ├── is it a mesh from a description?   → comfy-forge model3d.py generate --prompt "..." --game-ready → export
   └── is it sprites/UI/2D?               → ASSETFORGE sprite-atlas / image-prep
 ```
 

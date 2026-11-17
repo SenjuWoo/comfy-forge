@@ -3,7 +3,34 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**Version** — see `VERSION` (0.10.0). Since 0.5.1 the tag, VERSION, changelog
+**NEXT ACTION (0.11.0, branch `forge-0.11.0`, not pushed, not released)** — read
+`PLAN.md`. Code, tests and docs for T01-T08 and T10 are written and committed on the
+branch. Left: (1) read the live-check log if it still exists
+(`%TEMP%\claude\...\scratchpad\live.log`) or rerun those checks: `generate` with
+`-InitImage`, `-Transparent`, `-Lora`, `-Upscale`, `-Tileable`, a non-ASCII prompt;
+`model3d.py --variant idol` and `--variant pixal3d-multi --views`; `music.py generate`;
+`TESTS/integration_music.py`, `integration_live.py`, `test_mcp_handshake.py --workflow`;
+(2) run `TOOLS/preflight.ps1` on a clean tree; (3) fill the Evidence column of PLAN.md
+and the verified tables in README/docs; (4) push, PR, CI green, merge, tag `v0.11.0`,
+`release-verify`, query alerts. A SwarmUI started by `image-stack.ps1 start` may still
+be running: `image-stack.ps1 stop`.
+
+**0.11.0 so far, verified on this machine (2026-11-17, RTX 4080 SUPER, SwarmUI 0.9.8.4,
+ComfyUI 0.45.0)** — `TESTS/test_generate.py` PASS, `TESTS/test_model3d.py` PASS (84
+checks), `TESTS/test_music.py` PASS, `Test-CliSurface.ps1` PASS, `Test-PsSyntax.ps1` PASS.
+Live: default `generate` with no `-Model` rendered (26 s); `model3d.py generate --image`
+made a 699,928-triangle PBR `.glb` in 58 s; `model3d.py generate --prompt ... --game-ready`
+with no backend running started SwarmUI itself, rendered the concept, made a
+699,350-triangle `.glb`, repaired 3 zero-length normals and got a 17,000-triangle
+game-ready mesh from Asset Forge (exit 0, 10 min 51 s on a shared GPU; rendered in
+Blender and looked at: reads correctly front and back). `stop` refused while two jobs
+were rendering. Not verified yet: the image options live, idol and multi-view live,
+music after the auto-start change, full preflight, CI.
+Open with Asset Forge (field report filed there): `mesh-gameready` failed GLB-014 on
+the axe mesh because its Blender export wrote two zero tangents; reproducer
+`out/3d/repro-rune-axe-raw.glb`. The chest passed.
+
+**Version** — see `VERSION` (0.11.0). Since 0.5.1 the tag, VERSION, changelog
 heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and the
 `release-verify` workflow that runs on every tag.
 

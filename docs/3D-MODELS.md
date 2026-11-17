@@ -3,6 +3,44 @@
 comfy-forge does not download 3D weights for you. This page is the decision guide plus
 the one command that fetches everything, if you want it.
 
+## One command
+
+```powershell
+# a picture to a model, then to a game-ready mesh (20,000 triangles or fewer)
+python TOOLS/model3d.py generate --image sword.png --name sword --game-ready
+
+# text to a picture to a model
+python TOOLS/model3d.py generate --prompt "a wooden treasure chest with iron bands" --name chest --game-ready
+
+# a character from a turnaround: one sheet (front, left, back, right side by side) or separate pictures
+python TOOLS/model3d.py generate --variant pixal3d-multi --image sheet.png --name knight
+python TOOLS/model3d.py generate --variant pixal3d-multi --views front.png,left.png,back.png,right.png --name knight
+
+python TOOLS/model3d.py check --variant all     # which variants have their weights
+python TOOLS/model3d.py variants                # what each variant needs
+```
+
+From PowerShell use `TOOLS\model3d.ps1`, which passes the arguments through untouched.
+
+| variant | template it runs | input | output |
+|---|---|---|---|
+| `pixal3d` (default) | `3d_pixal3d_trellis2_image_to_model.json` | one picture | textured PBR `.glb` |
+| `pixal3d-multi` | `3d_pixal3d_multi_views.json` | a four-view sheet, or one to four views | textured PBR `.glb` |
+| `trellis2` | the single-image template with its switch set to stock TRELLIS.2 | one picture | textured PBR `.glb` |
+| `idol` | `3d_idol_image_to_gaussian_splat.json` | one picture | `.spz` splat, untextured `.glb`, orbit video |
+
+What the command does:
+
+1. Finds the ComfyUI backend (`--url`, `COMFYUI_URL`, port 8188, 7820-7832) and starts it headless when none answers (`--no-start` refuses instead).
+2. Uploads the picture and runs the template file itself, converted to ComfyUI's API format. Nothing is rebuilt by hand, so `presets/3d/generation.json` guards what executes. The branch a template switch does not take is removed first, so Pixal3D never asks for the optional TRELLIS.2 file. Preview nodes are not run.
+3. Saves the `.glb` to `--out` (default `out/3d`) with a `.json` sidecar, and repairs the few zero-length normals the mesh nodes leave on degenerate triangles, so the file is valid glTF. Only those vectors change.
+4. With `--game-ready`, runs Asset Forge's `mesh-gameready` on it (`--budget game|hero|accessory`).
+5. Ends with one JSON line: `model`, `triangles`, `game_ready`, `game_ready_triangles`, `game_ready_error`, `files`.
+
+`--prompt` renders the picture with `image-stack.ps1 generate` and adds framing words (one object, whole in frame, plain white background); `--raw-prompt` sends the text as written, `--preset`, `--image-model`, `--negative` and `--image-seed` pass through. `--seed N` replaces every sampler seed of the 3D run; without it the templates' fixed seeds are used and the same picture gives the same mesh.
+
+A turnaround sheet is cut into four equal columns, in the order front, left, back, right; each column is then cropped to its subject by the template's own background removal. If your sheet is laid out differently, cut it yourself and pass `--views`.
+
 The GLB these templates write is a sculpt, about 700,000 triangles. That file fails
 the game-ready gate. After it exists, run `TOOLS/game-ready.ps1` on the `.glb`.
 The default cap is 20,000 triangles. Rules: [GAME-READY.md](GAME-READY.md).
@@ -126,7 +164,10 @@ multi-view over single-view inputs, not knob-turning.
 Nothing in the runs needed custom seeds: all three workflows run `fixed` seeds, so results
 reproduce exactly on the same inputs.
 
-## Running it
+## Running it in the node editor instead
+
+`TOOLS/model3d.py` (top of this page) is the way to run these without opening anything.
+The templates are also ordinary ComfyUI workflows:
 
 1. Load a preprocessed image in `LoadImage`. The subject should sit on a clean or
    removable backdrop; BiRefNet handles backdrop removal if `auto_remove_background`
