@@ -3,32 +3,33 @@
 **Goal** — a beginner-usable Anima stack for SwarmUI/ComfyUI: install models and
 node packs, render from presets, and merge checkpoints into real, loadable files.
 
-**NEXT ACTION (0.11.0, branch `forge-0.11.0`, not pushed, not released)** — read
-`PLAN.md`. Code, tests and docs for T01-T08 and T10 are written and committed on the
-branch. Left: (1) read the live-check log if it still exists
-(`%TEMP%\claude\...\scratchpad\live.log`) or rerun those checks: `generate` with
-`-InitImage`, `-Transparent`, `-Lora`, `-Upscale`, `-Tileable`, a non-ASCII prompt;
-`model3d.py --variant idol` and `--variant pixal3d-multi --views`; `music.py generate`;
-`TESTS/integration_music.py`, `integration_live.py`, `test_mcp_handshake.py --workflow`;
-(2) run `TOOLS/preflight.ps1` on a clean tree; (3) fill the Evidence column of PLAN.md
-and the verified tables in README/docs; (4) push, PR, CI green, merge, tag `v0.11.0`,
-`release-verify`, query alerts. A SwarmUI started by `image-stack.ps1 start` may still
-be running: `image-stack.ps1 stop`.
+**Goal (since 0.11.0)** — the generative lane for an agent that writes only text and
+code: prompt to image, to game-ready 3D model, to song, with no window or manual
+server start, and a clean hand-off to Asset Forge.
 
-**0.11.0 so far, verified on this machine (2026-11-17, RTX 4080 SUPER, SwarmUI 0.9.8.4,
-ComfyUI 0.45.0)** — `TESTS/test_generate.py` PASS, `TESTS/test_model3d.py` PASS (84
-checks), `TESTS/test_music.py` PASS, `Test-CliSurface.ps1` PASS, `Test-PsSyntax.ps1` PASS.
-Live: default `generate` with no `-Model` rendered (26 s); `model3d.py generate --image`
-made a 699,928-triangle PBR `.glb` in 58 s; `model3d.py generate --prompt ... --game-ready`
-with no backend running started SwarmUI itself, rendered the concept, made a
-699,350-triangle `.glb`, repaired 3 zero-length normals and got a 17,000-triangle
-game-ready mesh from Asset Forge (exit 0, 10 min 51 s on a shared GPU; rendered in
-Blender and looked at: reads correctly front and back). `stop` refused while two jobs
-were rendering. Not verified yet: the image options live, idol and multi-view live,
-music after the auto-start change, full preflight, CI.
-Open with Asset Forge (field report filed there): `mesh-gameready` failed GLB-014 on
-the axe mesh because its Blender export wrote two zero tangents; reproducer
-`out/3d/repro-rune-axe-raw.glb`. The chest passed.
+**NEXT ACTION** — T11 in `PLAN.md`: push `forge-0.11.0`, open the PR, wait for `ci` on
+that SHA, merge, tag `v0.11.0` from the merged SHA, wait for `release-verify`, query
+alerts. Then record the merge SHA and tag here.
+
+**0.11.0 verified on this machine (2026-11-17, RTX 4080 SUPER, SwarmUI 0.9.8.4,
+ComfyUI 0.45.0)** — `TOOLS/preflight.ps1` at `2b6a85c`: 27 passed, 0 failed,
+0 unverified (RELEASE: ELIGIBLE). Live: SwarmUI started headless by the tool (web 3 s,
+backend ~45 s); default `generate` with no `-Model`; image to image, transparent
+background (alpha channel present), LoRA, upscale 768 -> 1152, a Japanese prompt;
+`-Tileable` on Anima refused with the fix named; `model3d.py` pixal3d (699,928 tris,
+58 s), pixal3d-multi (699,926 tris, 64 s), idol (`.spz` + 145,412-tri `.glb` + `.mp4`,
+50 s); `--prompt ... --game-ready`: Anima concept -> 699,350-tri PBR `.glb` -> Asset
+Forge 17,000 tris, rendered in Blender and checked by eye; `music.py generate` after
+the auto-start change; `integration_music.py` PASS (identical samples on the same
+seed); `integration_live.py` PASS; `test_mcp_handshake.py --workflow --checkpoint
+woomixAnima_v180` PASS; Asset Forge `comfy-generate` job SUCCEEDED through this repo.
+`stop` refused while two jobs were rendering.
+Not verified: `-Tileable` with an SDXL model (none installed), `trellis2` (weights not
+installed), standalone ComfyUI start outside the stub test, PowerShell 7 beyond CI.
+Open, owned elsewhere: Asset Forge `mesh-gameready` failed its own GLB-014 on the axe
+mesh (zero tangents after decimation; field report filed in Asset Forge, reproducer
+`out/3d/repro-rune-axe-raw.glb`); the bundle should register a `comfy-3d` command
+(field report filed in the bundle).
 
 **Version** — see `VERSION` (0.11.0). Since 0.5.1 the tag, VERSION, changelog
 heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and the
@@ -106,6 +107,8 @@ PowerShell 7 beyond CI is also unverified; local checks run on 5.1.
 
 **Log** — dtype policy, transactional writer, dependency resolver, safe model
 publish, pinned node packs, live integration test, 0.10.0 audit fixes.
-**Build/run** — `TOOLS/image-stack.ps1 <status|install|presets|generate|merge|mcp>`.
+**Build/run** — `TOOLS/image-stack.ps1 <status|capabilities|start|stop|install|presets|generate|merge|mcp>`; `python TOOLS/model3d.py`, `python TOOLS/music.py`.
+**Logs** — backend started by comfy-forge: `%LOCALAPPDATA%\comfy-kit\logsackend-*.log` (last 10 kept); record `%LOCALAPPDATA%\comfy-kitackend.json`.
+**Last good release** — v0.10.0 (`d9dd715`) until v0.11.0 is tagged.
 **Live test** — `python TESTS/integration_live.py --url http://127.0.0.1:7821`
 (use the backend's actual port; SwarmUI increments it when one is busy).
