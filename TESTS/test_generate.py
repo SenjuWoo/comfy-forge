@@ -265,7 +265,7 @@ def run(b):
     with open(mask, "wb") as fh:
         fh.write(backend_stub.png(640, 480))
     code, text = b.cli("generate", "-Prompt", "edit", "-Out", b.out, "-Negative", "blurry, text", "-InitImage", init,
-                       "-Creativity", "0.4", "-Mask", mask, "-Lora", "ink:0.8,big", "-Transparent", "-Tileable",
+                       "-Creativity", "0.4", "-Mask", mask, "-Lora", "ink:0.8,big", "-Transparent",
                        "-Upscale", "1.5", "-Steps", "12", "-Cfg", "3", "-Set", "aspectratio=16:9,colordepth=16bit")
     body = b.requests()[-1] if code == 0 else {}
     check(code == 0, "a render with every option runs", text)
@@ -279,8 +279,17 @@ def run(b):
           str((body.get("width"), body.get("height"))))
     check(body.get("loras") == "Anima/Styles/ink,Anima/Body/big" and body.get("loraweights") == "0.8,1",
           "-Lora -> loras and loraweights, names resolved against SwarmUI's list", str(body.get("loras")))
-    check(body.get("removebackground") is True and body.get("seamlesstileable") == "true" and body.get("refinerupscale") == 1.5,
-          "-Transparent, -Tileable, -Upscale -> removebackground, seamlesstileable, refinerupscale")
+    check(body.get("removebackground") is True and body.get("refinerupscale") == 1.5
+          and body.get("refinermethod") == "PostApply" and body.get("refinercontrolpercentage") == 0.4
+          and body.get("refinerupscalemethod") == "pixel-lanczos",
+          "-Transparent -> removebackground; -Upscale -> refinerupscale with the method and control SwarmUI needs to run it")
+    before = len(b.requests())
+    code, text = b.cli("generate", "-Prompt", "x", "-Out", b.out, "-Tileable")
+    check(code == 1 and "transformer" in text and len(b.requests()) == before,
+          "-Tileable with a transformer model (Anima) is refused before anything is sent", text)
+    code, text = b.cli("generate", "-Prompt", "x", "-Out", b.out, "-Tileable", "-Model", "SDXL/alt/dup.safetensors",
+                       "-Preset", "SDXL Base - Realism Quality")
+    check(code == 0 and b.requests()[-1].get("seamlesstileable") == "true", "-Tileable with an SDXL model -> seamlesstileable", text)
     check(str(body.get("steps")) == "12" and float(body.get("cfgscale")) == 3.0, "-Steps and -Cfg override the preset")
     check(body.get("aspectratio") == "16:9" and body.get("colordepth") == "16bit", "-Set passes any other parameter through")
     code, text = b.cli("generate", "-Prompt", "x", "-Out", b.out, "-Lora", "nolora")

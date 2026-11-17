@@ -1286,6 +1286,17 @@ function Invoke-Generate {
   elseif ($body['model']) { $useModel = Resolve-SwarmModelName $models ([string]$body['model']) "the model of preset '$Preset'" }
   elseif ($env:COMFY_FORGE_MODEL) { $useModel = Resolve-SwarmModelName $models $env:COMFY_FORGE_MODEL 'COMFY_FORGE_MODEL' }
   else { $useModel = Select-PresetModel $models $Preset }
+  if ($Tileable) {
+    # SwarmUI's seamless mode patches UNet convolutions. A transformer model (Anima,
+    # FLUX, Z-Image...) fails inside the backend with an error that names neither
+    # the model nor the option, so say it here, before anything is sent.
+    $entryOf = @($models | Where-Object { $_.name -eq $useModel })[0]
+    $family = ("{0} {1} {2}" -f $useModel, $entryOf.architecture, $entryOf.compat_class).ToLowerInvariant() -replace '[^a-z0-9]', ''
+    if ($family -match 'anima|flux|zimage|krea|sd3|stablediffusionv3|hidream|qwen|chroma|lumina|hunyuan|wan2|auraflow|pixart|cascade') {
+      Fail ("-Tileable works with UNet models (SDXL, SD 1.5), and $useModel is a transformer model. " +
+            "Pass an SDXL model with -Model, or render without -Tileable and make the texture tile in Asset Forge (texture-tileable).")
+    }
+  }
 
   if ($loraNames.Count) {
     $loras = Get-SwarmModels $port $session 'LoRA'
@@ -1323,7 +1334,16 @@ function Invoke-Generate {
   if ($maskData) { $body['maskimage'] = $maskData }
   if ($Transparent) { $body['removebackground'] = $true }
   if ($Tileable) { $body['seamlesstileable'] = 'true' }
-  if ($Upscale -gt 1) { $body['refinerupscale'] = $Upscale; if (-not $body['refinercontrolpercentage']) { $body['refinercontrolpercentage'] = 0.4 } }
+  if ($Upscale -gt 1) {
+    # SwarmUI runs its refiner stage, which is where the upscale happens, only when
+    # both a refiner method and a control percentage are present, and it resizes only
+    # when an upscale method is named (its API reads a missing one as "None"). With the
+    # factor alone it silently rendered at the base size.
+    $body['refinerupscale'] = $Upscale
+    if (-not $body['refinermethod']) { $body['refinermethod'] = 'PostApply' }
+    if (-not $body['refinerupscalemethod']) { $body['refinerupscalemethod'] = 'pixel-lanczos' }
+    if (-not $body['refinercontrolpercentage']) { $body['refinercontrolpercentage'] = 0.4 }
+  }
   foreach ($k in $extra.Keys) { $body[$k] = $extra[$k] }
 
   Note ("preset {0} -> {1} at {2}x{3}, {4} image(s), seed {5}" -f $Preset, $useModel, $body['width'], $body['height'], $Count, $useSeed)

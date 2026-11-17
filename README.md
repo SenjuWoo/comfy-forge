@@ -258,10 +258,17 @@ Python 3.12 embedded. Version: see `VERSION` (single source of truth).
 | Self-merge | bit-identical to the base, and renders |
 | Merge math | weights, scale, dtype policy, topology, metadata, writer rollback, encoder/VAE protection |
 | Lineage gate | 40-block base + 28-block donor refused, never silently blended |
-| MCP handshake | `comfyui-mcp@0.52.206`, `list_tools` / `describe_tool` / `call_tool` |
+| MCP handshake | `comfyui-mcp@0.52.206`, `list_tools` / `describe_tool` / `call_tool`, and a workflow rendered through it |
+| Headless start | SwarmUI started by the tool itself: web server in 3 s, its ComfyUI ready in about 45 s |
+| Image options | image to image, transparent background (alpha channel), LoRA, upscale (768 → 1152), a Japanese prompt |
+| Text → 3D → game-ready | prompt → Anima concept → Pixal3D 699,350-triangle PBR `.glb` → AssetForge 17,000 triangles |
+| 3D variants | Pixal3D single (58 s), Pixal3D multi-view (64 s), Idol splat + mesh + orbit video (50 s) |
+| AssetForge `comfy-generate` | run end to end through this repo |
 
-Not verified: hosts other than Windows, and standalone ComfyUI installs (this was
-built against SwarmUI, which drives its own ComfyUI backend).
+Not verified: hosts other than Windows, standalone ComfyUI installs (this was
+built against SwarmUI, which drives its own ComfyUI backend; the standalone start
+path is covered by the test suite only), `-Tileable` with an SDXL model (none
+installed here), and the `trellis2` variant (weights not installed).
 
 ## Troubleshooting
 

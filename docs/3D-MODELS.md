@@ -142,6 +142,13 @@ output descriptions below are measured, not guessed.
 | Pixal3D (single) | viking_wolf_rune_axe.png (1.1 MB) | `.glb` 61.5 MB, 699,878 tris, 419,622 verts, **1 material: pbrMetallicRoughness + occlusion + normal, 3 embedded PNGs (4096² base color + normal, 2048² rough/metal/AO)** | ≈ 4 min |
 | Pixal3D (multi-view) | character_turnaround_4view_sheet.png (14 MB, white 4-view mech sheet) | `.glb` 699,770 tris, 439,883 verts, same material structure as single-view, same texture sizes | ≈ 4.5 min |
 
+Through `TOOLS/model3d.py` (0.11.0, same machine, ComfyUI 0.45.0 behind SwarmUI 0.9.8.4):
+Pixal3D single from a rendered axe, 699,928 triangles in 58 s; Pixal3D multi-view from one
+view, 699,926 triangles in 64 s; Idol, `.spz` + 145,412-triangle `.glb` + orbit `.mp4` in
+50 s; `--prompt` to a chest, 699,350 triangles, then 17,000 after `--game-ready`. Each
+Pixal3D mesh carried 3 to 14 zero-length normals, which the tool repaired. `trellis2` was
+not run (its weights are not installed).
+
 Visual read (from the extracted frames, not a viewer score): the Idol bear render is
 surprisingly coherent from front, profile and back — fur silhouette, sunglasses, red guitar —
 but it is splat-quality noise converted to an 847k-tri unlit mesh: great for orbit previews,

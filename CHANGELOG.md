@@ -32,7 +32,9 @@ the fix.
   `COMFYUI_URL` is never replaced by another server.
 - `generate` options: `-Negative`, `-InitImage` with `-Creativity` (image to
   image), `-Mask` (inpaint), `-Lora name[:weight]`, `-Transparent`, `-Tileable`,
-  `-Upscale`, `-Set key=value` for any other SwarmUI parameter, and `-Json` for a
+  `-Upscale` (SwarmUI only resizes when a refiner method, a control share and an
+  upscale method are all sent; all three are), `-Set key=value` for any other
+  SwarmUI parameter, and `-Json` for a
   closing JSON line. Every image gets a `.json` sidecar with its own seed. A random
   seed is chosen here and reported, so any render can be repeated. `docs/IMAGES.md`.
 - `image-stack.ps1 capabilities`: one JSON object with every lane (image, 3D,
@@ -64,12 +66,20 @@ the fix.
   mesh (8 of 424,368 on the test axe), which is invalid glTF and an error in the
   Khronos validator. `model3d.py` repairs them (the normal of a triangle that uses
   the vertex) and changes nothing else in the file.
+- `-Tileable` with a transformer model (Anima, FLUX, Z-Image) failed inside the
+  backend with "ctypes objects containing pointers cannot be pickled"; it is now
+  refused before anything is sent, with what to use instead.
 - ComfyUI nodes that describe a choice as `["COMBO", {"options": [...]}]` were read
   as having no options, so a model file that was present was reported missing.
 
 **Fragile**
 - A backend started from a command whose output is captured kept that pipe open,
   so the caller waited until the backend exited. `start` launches it detached.
+- Waiting on a long render (a 700,000-triangle bake), one slow `/history` reply
+  failed the whole music or 3D job; the wait now retries and gives up only when
+  the backend keeps refusing.
+- SwarmUI restarts a backend that failed to load; `start` no longer gives up on
+  the first `errored` reading.
 - `Install-MissingRequirements` carried an unreachable branch after its
   clone-failure `continue`; removed.
 

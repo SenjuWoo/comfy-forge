@@ -125,7 +125,8 @@ Seeds are reproducible: `--set seed=12345` gives you the same image back.
 | Check | Result |
 |---|---|
 | AssetForge `audio-music` drives `music.py generate` | PASS — run end to end against the real tool through SwarmUI's backend (see [MUSIC.md](MUSIC.md)) |
-| AssetForge delegates a render through `image-stack.ps1 generate` | UNVERIFIED — `comfy-generate` has not been run end to end; this repo's render path works on its own |
+| AssetForge delegates a render through `image-stack.ps1 generate` | PASS (0.11.0) — `comfy-generate` run end to end: detect, generate through the running SwarmUI, thumbnail, record; job SUCCEEDED |
+| `model3d.py --game-ready` hands a generated `.glb` to `mesh-gameready` | PASS on a Pixal3D chest (699,350 → 17,000 triangles, 1024 textures). One axe mesh failed Asset Forge's own glTF validation of its output (zero tangents after decimation); reported to Asset Forge |
 | Markers this repo exposes (`TOOLS/image-stack.ps1`, `presets/presets.json`) | present |
 | `image-stack.ps1 status` / `presets` / `generate -Out` | PASS in this repo's test suite |
 

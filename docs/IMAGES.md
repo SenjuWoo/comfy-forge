@@ -76,7 +76,8 @@ An image made here goes straight into the 3D tool (`python TOOLS/model3d.py gene
 
 ## Limits
 
-- `-Tileable` is SwarmUI's seamless mode, which works with UNet models (SDXL). Anima, FLUX and Z-Image are transformer models; for those, make the texture tile in Asset Forge (`texture-tileable`).
+- `-Tileable` is SwarmUI's seamless mode, which works with UNet models (SDXL, SD 1.5). With a transformer model (Anima, FLUX, Z-Image, Krea) the backend fails, so `generate` refuses before sending anything; make the texture tile in Asset Forge (`texture-tileable`) instead. Not rendered live: no SDXL model was installed on the reference machine.
+- `-Upscale` runs SwarmUI's refiner stage with `PostApply` and a lanczos resize; it is a second sampling pass, so it takes about as long again as the first render.
 - `-Transparent` uses SwarmUI's background removal, which downloads its model the first time it is used.
 - Presets carry settings, not prompts (four pose and inpaint presets carry a prompt of their own, used when `-Prompt` is not given).
 - Text in the prompt is sent as UTF-8; names and tags in any script arrive intact.
