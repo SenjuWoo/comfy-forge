@@ -108,7 +108,7 @@ PowerShell 7 beyond CI is also unverified; local checks run on 5.1.
 **Log** — dtype policy, transactional writer, dependency resolver, safe model
 publish, pinned node packs, live integration test, 0.10.0 audit fixes.
 **Build/run** — `TOOLS/image-stack.ps1 <status|capabilities|start|stop|install|presets|generate|merge|mcp>`; `python TOOLS/model3d.py`, `python TOOLS/music.py`.
-**Logs** — backend started by comfy-forge: `%LOCALAPPDATA%\comfy-kit\logsackend-*.log` (last 10 kept); record `%LOCALAPPDATA%\comfy-kitackend.json`.
+**Logs** — backend started by comfy-forge: `%LOCALAPPDATA%\comfy-kit\logs\backend-*.log` (last 10 kept); record `%LOCALAPPDATA%\comfy-kit\backend.json`.
 **Last good release** — v0.10.0 (`d9dd715`) until v0.11.0 is tagged.
 **Live test** — `python TESTS/integration_live.py --url http://127.0.0.1:7821`
 (use the backend's actual port; SwarmUI increments it when one is busy).
