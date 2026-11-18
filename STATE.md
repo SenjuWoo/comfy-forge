@@ -7,9 +7,13 @@ node packs, render from presets, and merge checkpoints into real, loadable files
 code: prompt to image, to game-ready 3D model, to song, with no window or manual
 server start, and a clean hand-off to Asset Forge.
 
-**NEXT ACTION** — T11 in `PLAN.md`: push `forge-0.11.0`, open the PR, wait for `ci` on
-that SHA, merge, tag `v0.11.0` from the merged SHA, wait for `release-verify`, query
-alerts. Then record the merge SHA and tag here.
+**NEXT ACTION** — none open for 0.11.0. Candidates: `-Tileable` with an SDXL model,
+`trellis2` once its weights are installed, a clean-machine install.
+
+**Released 2026-11-17** — tag `v0.11.0` = `e87acba` (PR #46, squash). `ci` and
+`release-verify` green on that SHA; published source archive byte-identical to the
+committed blobs (95 files); Dependabot and secret-scanning alerts 0 open; code
+scanning not configured (404).
 
 **0.11.0 verified on this machine (2026-11-17, RTX 4080 SUPER, SwarmUI 0.9.8.4,
 ComfyUI 0.45.0)** — `TOOLS/preflight.ps1` at `2b6a85c`: 27 passed, 0 failed,
@@ -109,6 +113,6 @@ PowerShell 7 beyond CI is also unverified; local checks run on 5.1.
 publish, pinned node packs, live integration test, 0.10.0 audit fixes.
 **Build/run** — `TOOLS/image-stack.ps1 <status|capabilities|start|stop|install|presets|generate|merge|mcp>`; `python TOOLS/model3d.py`, `python TOOLS/music.py`.
 **Logs** — backend started by comfy-forge: `%LOCALAPPDATA%\comfy-kit\logs\backend-*.log` (last 10 kept); record `%LOCALAPPDATA%\comfy-kit\backend.json`.
-**Last good release** — v0.10.0 (`d9dd715`) until v0.11.0 is tagged.
+**Last good release** — v0.11.0 (`e87acba`).
 **Live test** — `python TESTS/integration_live.py --url http://127.0.0.1:7821`
 (use the backend's actual port; SwarmUI increments it when one is busy).

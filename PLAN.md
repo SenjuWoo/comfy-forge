@@ -18,7 +18,7 @@ Evidence format: `cmd:<command> @ <sha> exit=<n>`.
 | T08 | Tests wired into `preflight.ps1`, `ci.yml`, `release-verify.yml` | complete | T01-T07 | `cmd:powershell -File TOOLS/preflight.ps1` | cmd:powershell -File TOOLS/preflight.ps1 @ 2b6a85c exit=0 (27 passed, 0 failed, 0 unverified) |
 | T09 | Live proof on this machine: default render, img2img, transparent, text to 3D to game-ready, multi-view, music regression, Asset Forge `comfy-generate` | complete | T01-T06 | `file:STATE.md` | file:STATE.md @ 2b6a85c; also integration_music PASS, integration_live PASS, test_mcp_handshake --workflow PASS, Asset Forge comfy-generate SUCCEEDED |
 | T10 | Docs, AGENTS.md, VERSION 0.11.0, CHANGELOG, STATE; field reports for Asset Forge and the bundle | complete | T09 | `cmd:powershell -File TESTS/Test-Release.ps1` | cmd:powershell -File TESTS/Test-Release.ps1 @ 2b6a85c exit=0 |
-| T11 | PR, CI green on the SHA, merge, tag `v0.11.0`, `release-verify` green, alerts queried | pending | T10 | `cmd:gh run list` | - |
+| T11 | PR, CI green on the SHA, merge, tag `v0.11.0`, `release-verify` green, alerts queried | complete | T10 | `cmd:gh run list` | cmd:gh run view 44201933913 (ci) @ e87acba exit=0; cmd:gh run view 44202742261 (release-verify) @ e87acba exit=0; archive 95/95 blobs identical; alerts dependabot 0, secret 0, code scanning 404 |
 
 ## Decisions
 
