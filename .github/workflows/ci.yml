@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only token: the jobs only check out code and query public GitHub APIs
+# (the lock validator). Fixes code-scanning actions/missing-workflow-permissions.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: windows-latest

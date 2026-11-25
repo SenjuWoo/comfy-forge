@@ -10,10 +10,21 @@ server start, and a clean hand-off to Asset Forge.
 **NEXT ACTION** — none open for 0.11.0. Candidates: `-Tileable` with an SDXL model,
 `trellis2` once its weights are installed, a clean-machine install.
 
+**2026-11-25 presentation pass (docs and CI only, untagged, still 0.11.0)** — README
+rebuilt to the fleet layout with `docs/presentation/` (hero, social preview, three
+terminal shots made by the branding kit from real runs, and `render-blacksmith.jpg`, the
+file a real seed-1 render wrote; a second render with the same seed was pixel-identical).
+Docs now call `powershell -ExecutionPolicy Bypass -File` (plain `-File` is refused by the
+default execution policy). `ci.yml` got `permissions: contents: read` for code-scanning
+alert #1 (`actions/missing-workflow-permissions`); code scanning default setup is now
+enabled on the repository. Baseline preflight before the pass: 26 passed, 0 failed,
+1 unverified (MCP, no backend). The social preview image must be uploaded by hand
+(Settings > General > Social preview).
+
 **Released 2026-11-17** — tag `v0.11.0` = `e87acba` (PR #46, squash). `ci` and
 `release-verify` green on that SHA; published source archive byte-identical to the
 committed blobs (95 files); Dependabot and secret-scanning alerts 0 open; code
-scanning not configured (404).
+scanning not configured at the time (404; enabled 2026-11-25).
 
 **0.11.0 verified on this machine (2026-11-17, RTX 4080 SUPER, SwarmUI 0.9.8.4,
 ComfyUI 0.45.0)** — `TOOLS/preflight.ps1` at `2b6a85c`: 27 passed, 0 failed,
@@ -78,7 +89,7 @@ heading and STATE must agree exactly, enforced by `TESTS/Test-Release.ps1` and t
 - `image-stack.ps1 install` on a clean machine (standalone ComfyUI included).
 - Leftover, deliberately not touched: an unreachable `if ($LASTEXITCODE -eq 0)` /
   `else` pair in `Install-MissingRequirements` after the clone-failure `continue`
-  (harmless); code scanning is not configured on the repository.
+  (harmless).
 
 **Unverified** — the standalone (non-SwarmUI) ComfyUI install on a clean
 machine. The code paths exist and are exercised on this machine, but no clean

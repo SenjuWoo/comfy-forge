@@ -1,6 +1,6 @@
 # Testing comfy-forge
 
-`<SwarmUI>` below is your SwarmUI folder. `powershell -File TOOLS\image-stack.ps1 python` prints the interpreter the stack uses, so the long path never has to be typed.
+`<SwarmUI>` below is your SwarmUI folder. `powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 python` prints the interpreter the stack uses, so the long path never has to be typed.
 
 Two layers. The fast layer runs anywhere in about a minute; the live layer needs
 a real ComfyUI with models and a GPU, and it is the only layer that proves the
@@ -28,7 +28,7 @@ python TESTS\validate_workflows.py --self-test
 python TESTS\test_mcp_handshake.py
 ```
 
-`powershell -File TOOLS\preflight.ps1` runs all of them and gives one verdict.
+`powershell -ExecutionPolicy Bypass -File TOOLS\preflight.ps1` runs all of them and gives one verdict.
 
 `test_merge.py` needs `torch` and `safetensors`. If the system Python lacks
 them, use the interpreter ComfyUI already ships:
@@ -50,10 +50,10 @@ that is expected on CI and must never be reported as a pass.
 
 ## Live layer (real backend)
 
-1. Start the backend: `powershell -File TOOLS\image-stack.ps1 start` (headless), or open
+1. Start the backend: `powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 start` (headless), or open
    SwarmUI or ComfyUI yourself.
 2. Find the backend's port — SwarmUI picks the next free one if 7821 is busy:
-   `powershell -File TOOLS\image-stack.ps1 status` prints it.
+   `powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 status` prints it.
 3. Run:
 
 ```powershell
@@ -77,7 +77,7 @@ That enqueues through the MCP tool and waits for the job to produce an image.
 The image and 3D lanes are proven by using them:
 
 ```powershell
-powershell -File TOOLS\image-stack.ps1 generate -Prompt "a red apple on a white table" -Out out\live -Json
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 generate -Prompt "a red apple on a white table" -Out out\live -Json
 python TOOLS\model3d.py check --variant all
 python TOOLS\model3d.py generate --image out\live\<the image>.png --name apple --game-ready
 ```

@@ -9,7 +9,7 @@ The one command below ships a handheld prop (an axe, a sword, a tool) at **20,00
 From this repo:
 
 ```powershell
-powershell -File TOOLS\game-ready.ps1 -Input model.glb
+powershell -ExecutionPolicy Bypass -File TOOLS\game-ready.ps1 -Input model.glb
 ```
 
 That writes `model-gameready.glb` next to the input. Asset Forge runs Blender. This repo does not decimate.
@@ -39,8 +39,8 @@ A `.spz` is a preview. Pass the `.glb`.
 | `accessory` | 4,000 | 1024 | A Roblox accessory worn on an avatar. Marketplace accessories cannot exceed 4,000 triangles. |
 
 ```powershell
-powershell -File TOOLS\game-ready.ps1 -Input model.glb -Budget hero
-powershell -File TOOLS\game-ready.ps1 -Input model.glb -Budget accessory
+powershell -ExecutionPolicy Bypass -File TOOLS\game-ready.ps1 -Input model.glb -Budget hero
+powershell -ExecutionPolicy Bypass -File TOOLS\game-ready.ps1 -Input model.glb -Budget accessory
 ```
 
 Leave `-Tris` and `-Texture` alone. `0` means "use the budget". A triangle count above the budget is rejected before Blender starts. `50000` and `700000` are not budgets.

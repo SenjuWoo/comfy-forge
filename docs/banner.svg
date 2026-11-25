@@ -32,7 +32,7 @@
 
   <g font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="17" fill="#a5b4fc">
     <rect x="700" y="96" width="196" height="46" rx="23" fill="#1e293b" stroke="#334155"/>
-    <text x="798" y="125" text-anchor="middle">39 presets</text>
+    <text x="798" y="125" text-anchor="middle">42 presets</text>
     <rect x="916" y="96" width="210" height="46" rx="23" fill="#1e293b" stroke="#334155"/>
     <text x="1021" y="125" text-anchor="middle">4-way merge</text>
     <rect x="700" y="160" width="196" height="46" rx="23" fill="#1e293b" stroke="#334155"/>

@@ -3,7 +3,7 @@
 One verb renders through SwarmUI's API: text to image, image to image, inpainting, LoRAs, transparent cut-outs, tileable textures and an upscale pass. SwarmUI builds the right graph for each model family (Anima, FLUX, SDXL, Z-Image), so one command line works for all of them.
 
 ```powershell
-powershell -File TOOLS\image-stack.ps1 generate -Prompt "a lighthouse on a basalt cliff at dawn" -Out out\shots -Json
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 generate -Prompt "a lighthouse on a basalt cliff at dawn" -Out out\shots -Json
 ```
 
 Nothing has to be running first. When SwarmUI does not answer, `generate` starts it headless (no window, no browser), waits until its ComfyUI backend has loaded (about 45 seconds on the reference machine) and leaves it running for the next render. `image-stack.ps1 stop` ends it. `-NoStart` refuses instead of starting.

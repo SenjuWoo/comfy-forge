@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="comfy-forge mark: three linked graph nodes feeding a spark">
+  <!-- Colours come from docs/banner.svg: navy background, teal / indigo / pink accent. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#121a33"/>
+      <stop offset="100%" stop-color="#1b1230"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="50%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#f472b6"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="url(#bg)" stroke="#334155" stroke-width="6"/>
+  <!-- wires -->
+  <g fill="none" stroke="url(#accent)" stroke-width="18" stroke-linecap="round" opacity="0.9">
+    <path d="M150 168 C 230 168, 220 256, 300 256"/>
+    <path d="M150 344 C 230 344, 220 256, 300 256"/>
+  </g>
+  <!-- input nodes -->
+  <rect x="86" y="132" width="96" height="72" rx="20" fill="#1e293b" stroke="#5eead4" stroke-width="10"/>
+  <rect x="86" y="308" width="96" height="72" rx="20" fill="#1e293b" stroke="#818cf8" stroke-width="10"/>
+  <!-- spark: the output -->
+  <path filter="url(#glow)" fill="url(#accent)"
+        d="M352 160 L374 230 L444 256 L374 282 L352 352 L330 282 L260 256 L330 230 Z"/>
+</svg>
