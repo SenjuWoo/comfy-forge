@@ -13,8 +13,8 @@ python TOOLS/anima_dataset.py validate <folder-or-zip> [--trigger token] [--json
 ```
 
 `inspect` and `validate` change nothing. Exit codes: `0` clean, `1` the archive does not
-match the dataset, `2` something was left out or failed (the reason is printed and is in
-`_review.tsv`). From PowerShell, `TOOLS\dataset.ps1` forwards its arguments unchanged.
+match the dataset, `2` something was left out for a problem or failed (the reason is printed and is in
+`_review.tsv`). An exact duplicate that is left out is expected and does not change the exit code. From PowerShell, `TOOLS\dataset.ps1` forwards its arguments unchanged.
 
 ### Look before you build
 
@@ -34,7 +34,7 @@ lead a caption, or an upload archive spreads its pairs over several folders.
 ## The short version
 
 ```
-python TOOLS/anima_dataset.py --images "S:\my\shots" --out "S:\my\shots-dataset" ^
+python TOOLS/anima_dataset.py --images "shots" --out "shots-dataset" ^
   --trigger mychar --concept "an original anime illustration" --zip mychar.zip
 ```
 
@@ -46,8 +46,8 @@ python TOOLS/anima_dataset.py --images "S:\my\shots" --out "S:\my\shots-dataset"
 ## Install the tagger (once, only needed for uncaptioned images)
 
 ```
-powershell -File TOOLS/Install-Tagger.ps1              # eva02, best quality, ~1.2 GB
-powershell -File TOOLS/Install-Tagger.ps1 -Name swinv2  # half the download, slightly weaker
+powershell -ExecutionPolicy Bypass -File TOOLS/Install-Tagger.ps1              # eva02, best quality, ~1.2 GB
+powershell -ExecutionPolicy Bypass -File TOOLS/Install-Tagger.ps1 -Name swinv2  # half the download, slightly weaker
 ```
 
 Apache-2.0 weights (SmilingWolf WD14 v3), stored in `%LOCALAPPDATA%\comfy-kit\taggers`.

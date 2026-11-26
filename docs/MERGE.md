@@ -44,11 +44,11 @@ first one becomes the **anchor** for this set — see the lineage rule below:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 merge `
-  -Base "S:\models\Versetility - Diving-Anima_v9.0.safetensors" `
-  -Donors "S:\models\Versetility - Diving-Anima_v9.0.safetensors",
-          "S:\models\Details - Terra Rising Unity 3.0 - Turbo.safetensors",
-          "S:\models\Composition - hentai_studio_quality-000008.safetensors",
-          "S:\models\Consistensy - One obsession_animaV5turbo.safetensors" `
+  -Base "C:\models\Versetility - Diving-Anima_v9.0.safetensors" `
+  -Donors "C:\models\Versetility - Diving-Anima_v9.0.safetensors",
+          "C:\models\Details - Terra Rising Unity 3.0 - Turbo.safetensors",
+          "C:\models\Composition - hentai_studio_quality-000008.safetensors",
+          "C:\models\Consistensy - One obsession_animaV5turbo.safetensors" `
   -Weights 0.85,0.75,0.60,0.50 -Scale 1.0 -AcceptFallbackAnchor
 ```
 

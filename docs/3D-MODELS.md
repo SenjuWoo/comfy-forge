@@ -100,10 +100,10 @@ MIT).
 
 ```powershell
 # see what would be downloaded, and where
-powershell -File TOOLS\Install-3DModels.ps1 -Set all -WhatIf
+powershell -ExecutionPolicy Bypass -File TOOLS\Install-3DModels.ps1 -Set all -WhatIf
 
 # or fetch one stack
-powershell -File TOOLS\Install-3DModels.ps1 -Set pixal3d
+powershell -ExecutionPolicy Bypass -File TOOLS\Install-3DModels.ps1 -Set pixal3d
 ```
 
 `-Set` accepts `idol`, `pixal3d`, `trellis2` or `all`. Files land in the `models` folder

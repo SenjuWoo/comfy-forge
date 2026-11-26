@@ -5,9 +5,9 @@ comfy-forge is the generative lane for an agent that can only write text and cod
 ## Cold start
 
 ```text
-powershell -File TOOLS\image-stack.ps1 capabilities   one JSON object: every lane, ready or not, the command for each
-powershell -File TOOLS\image-stack.ps1 status         the same for a person
-powershell -File TOOLS\image-stack.ps1 --help         every verb and option
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 capabilities   one JSON object: every lane, ready or not, the command for each
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 status         the same for a person
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 --help         every verb and option
 ```
 
 No server has to be running. `generate`, `model3d.py generate` and `music.py generate` start SwarmUI headless (no window, no browser) when nothing answers, and leave it running for the next job. `image-stack.ps1 stop` ends a backend this tool started and never one a person started. `-NoStart` / `--no-start` turn the automatic start off.
@@ -61,7 +61,7 @@ Nobody looks at the picture, the mesh or the song for you. Open the file before 
 
 1. `inspect` first. It is read-only and its last line is the build command that fits the folder.
 2. Build with `--mode convert` when every image already has a `.txt`: no tagger, no model, deterministic text work. Existing tags are kept; nothing is replaced by generated prose.
-3. Read the result (`--json`, or `_review.tsv`). Exit `2` means images were left out; each has a status and a reason.
+3. Read the result (`--json`, or `_review.tsv`). Exit `2` means an image was left out for a problem or something failed; each has a status and a reason. An exact duplicate left out is expected and still exits `0`.
 4. `validate` the archive before handing it over.
 
 Call the Python tool directly, or `TOOLS\dataset.ps1` from PowerShell. Do not route dataset arguments through `image-stack.ps1`: PowerShell binds `--out` and `--mode` to that script's own parameters.

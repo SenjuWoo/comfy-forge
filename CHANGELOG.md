@@ -2,6 +2,20 @@
 
 ## v0.11.0 - every generative lane, with no human step
 
+**After the release (docs and CI only, not tagged)**
+- README rebuilt: cover image, proof screenshots from real runs (status and a seed-1
+  render, 3D variant check and a music take, a dataset build) and the image that run
+  wrote; install steps, commands, how it works and what is verified, in one place.
+- Every documented `powershell -File ...` command now passes `-ExecutionPolicy Bypass`:
+  on a default Windows install the old form stopped at "running scripts is disabled on
+  this system".
+- Corrected: the merge `--dry-run` hint (it is a `merge_anima.py` flag, not an
+  `image-stack.ps1` one), the embedded Python version (3.13), the dataset exit-code
+  wording (an exact duplicate left out still exits 0), the 3D timing note, the banner's
+  preset count (42), and example paths that named a real drive.
+- CI runs with a read-only `GITHUB_TOKEN` (`permissions: contents: read`), which closes
+  the code-scanning alert `actions/missing-workflow-permissions`.
+
 For an agent that can only write text and code: a prompt becomes an image, a
 game-ready 3D model or a song with no window to open and no server to start by
 hand. Six defects found on the way are fixed; each has a test that fails without
@@ -150,7 +164,7 @@ first and has a test that failed before it and passes now.
   asked one by one, ~2 s each on Windows. Ports are now asked in parallel
   (5 s and 0.7 s measured).
 - File identity never read the volume serial (`fsutil fsinfo volumeinfo` was given
-  `Z:\:`, and needs elevation anyway); it now reads it from WMI.
+  `X:\:`, and needs elevation anyway); it now reads it from WMI.
 - 3D downloads used `curl --retry`, which restarts at byte 0; retries now resume
   with `-C -`. `-Force` (declared, never used) now replaces a file and keeps the old
   one as `.replaced-*`.
@@ -999,7 +1013,7 @@ three user-data bugs found afterwards are closed.
 ```
 integration_merge_graph.py
   donors 4 | merger HaDeSAnimaMultiModelMerger | method Task Arithmetic
-  saver  -> S:\...\output\comfy-kit-4way-proof_00001_.safetensors (4.18 GB)
+  saver  -> ...\output\comfy-kit-4way-proof_00001_.safetensors (4.18 GB)
   saved  685 tensors, loadable by safetensors
   visible to UNETLoader in models/diffusion_models
   render mean=157.0 range=0-255

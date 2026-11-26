@@ -9,15 +9,15 @@ for full songs and instrumentals.
 
 ```powershell
 # 1. see what would be downloaded (nothing is fetched yet), then fetch one file, ~9.3 GB
-powershell -File TOOLS\Install-MusicModels.ps1 -WhatIf
-powershell -File TOOLS\Install-MusicModels.ps1 -Set aio
+powershell -ExecutionPolicy Bypass -File TOOLS\Install-MusicModels.ps1 -WhatIf
+powershell -ExecutionPolicy Bypass -File TOOLS\Install-MusicModels.ps1 -Set aio
 
 # 2. optional: start the backend (headless) and ask whether it is ready; step 3 starts it too
-powershell -File TOOLS\image-stack.ps1 start
-powershell -File TOOLS\music.ps1 check
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 start
+powershell -ExecutionPolicy Bypass -File TOOLS\music.ps1 check
 
 # 3. make three takes and keep the one you like
-powershell -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, soft drums, vinyl crackle" `
+powershell -ExecutionPolicy Bypass -File TOOLS\music.ps1 generate --tags "lo-fi hip hop, mellow rhodes, soft drums, vinyl crackle" `
   --instrumental --duration 90 --bpm 82 --key "A minor" --count 3 --name lofi-study
 ```
 

@@ -58,13 +58,13 @@ AssetForge cannot render until comfy-forge can. Do this once, in order:
 
 ```powershell
 # 1. see what is installed and running
-powershell -File TOOLS\image-stack.ps1 status
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 status
 
 # 2. install anything missing (models, node pack, python modules)
-powershell -File TOOLS\image-stack.ps1 install
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 install
 
 # 3. optional: start SwarmUI now (headless) instead of on the first render
-powershell -File TOOLS\image-stack.ps1 start
+powershell -ExecutionPolicy Bypass -File TOOLS\image-stack.ps1 start
 ```
 
 SwarmUI has to have been launched once by hand (`launch-windows.bat`), so that it has
@@ -159,7 +159,7 @@ renders and image→3D; the two in sequence when a 3D asset starts from a concep
 A generated `.glb` is not game-ready. About 700,000 triangles fails. One command:
 
 ```powershell
-powershell -File TOOLS\game-ready.ps1 -Input model.glb
+powershell -ExecutionPolicy Bypass -File TOOLS\game-ready.ps1 -Input model.glb
 ```
 
 Default cap: 20,000 triangles. Rules: [GAME-READY.md](GAME-READY.md).
